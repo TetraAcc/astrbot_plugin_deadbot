@@ -1,0 +1,16 @@
+{
+  "api_key": {
+    "description": "旧 StatLocker 密钥（当前不使用）",
+    "type": "string",
+    "default": "",
+    "hint": "当前使用免费 Deadlock API，无需密钥。此项仅保留旧配置。"
+  },
+  "roster": {
+    "description": "群友名单",
+    "type": "list",
+    "default": [
+      "12345678=群友昵称"
+    ],
+    "hint": "每项格式：Account ID=群内称呼。例：12345678=群友昵称。不要填写 SteamID64。"
+  }
+}

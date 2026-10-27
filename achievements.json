@@ -1,0 +1,909 @@
+[
+  {
+    "original": "1v11",
+    "name": "1V11",
+    "tier": "史诗",
+    "condition": "至少5个打法类别评级达到80%",
+    "family": "1v11",
+    "rules": [],
+    "deferred_reason": "缺少可比的类别评级，不能用MVP分项代替"
+  },
+  {
+    "original": "Boogey man",
+    "name": "杀人如麻",
+    "tier": "史诗",
+    "condition": "单局30次击杀",
+    "family": "kills",
+    "rules": [
+      [
+        [
+          "kills",
+          "ge",
+          30
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Cranial Fixation",
+    "name": "锁头关一下",
+    "tier": "史诗",
+    "condition": "爆头率35%；对英雄射击至少100次、命中至少30次",
+    "family": "headshots",
+    "rules": [
+      [
+        [
+          "hero_headshot_rate",
+          "ge",
+          0.35
+        ],
+        [
+          "hero_shots",
+          "ge",
+          100
+        ],
+        [
+          "hero_hits",
+          "ge",
+          30
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Damage Deity",
+    "name": "开转！",
+    "tier": "史诗",
+    "condition": "英雄伤害每分钟2,000",
+    "family": "damage",
+    "rules": [
+      [
+        [
+          "damage_per_minute",
+          "ge",
+          2000
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Immortal Bulwark",
+    "name": "铜墙铁壁",
+    "tier": "史诗",
+    "condition": "每分钟吸收伤害3,000，口径待核",
+    "family": "Immortal Bulwark",
+    "rules": [],
+    "deferred_reason": "吸收伤害口径待核"
+  },
+  {
+    "original": "Military Industrial Complex",
+    "name": "军工复合体",
+    "tier": "史诗",
+    "condition": "每分钟伤害与灵魂均达到1,500",
+    "family": "industry",
+    "rules": [
+      [
+        [
+          "damage_per_minute",
+          "ge",
+          1500
+        ],
+        [
+          "souls_per_minute",
+          "ge",
+          1500
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Omnipresent",
+    "name": "我在TP",
+    "tier": "史诗",
+    "condition": "参团率至少85%，参与击杀至少20次",
+    "family": "participation",
+    "rules": [
+      [
+        [
+          "kill_participation",
+          "ge",
+          0.85
+        ],
+        [
+          "participations",
+          "ge",
+          20
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Soul Reaper",
+    "name": "全图提款",
+    "tier": "史诗",
+    "condition": "灵魂每分钟1,600",
+    "family": "souls",
+    "rules": [
+      [
+        [
+          "souls_per_minute",
+          "ge",
+          1600
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Accuracy God",
+    "name": "风灵月影",
+    "tier": "史诗",
+    "condition": "命中率85%；对英雄射击至少100次",
+    "family": "accuracy",
+    "rules": [
+      [
+        [
+          "hero_accuracy",
+          "ge",
+          0.85
+        ],
+        [
+          "hero_shots",
+          "ge",
+          100
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Angel",
+    "name": "移动泉水",
+    "tier": "史诗",
+    "condition": "队友治疗每分钟1,000",
+    "family": "healing",
+    "rules": [
+      [
+        [
+          "ally_heal_per_minute",
+          "ge",
+          1000
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Blaze of Glory",
+    "name": "豪情在天",
+    "tier": "史诗",
+    "condition": "20连杀",
+    "family": "Blaze of Glory",
+    "rules": [],
+    "deferred_reason": "缺少完整击杀时间线"
+  },
+  {
+    "original": "City Flattener",
+    "name": "推塔游戏",
+    "tier": "史诗",
+    "condition": "建筑伤害每分钟1,250，或单局40,000",
+    "family": "building",
+    "rules": [
+      [
+        [
+          "building_per_minute",
+          "ge",
+          1250
+        ]
+      ],
+      [
+        [
+          "boss_damage",
+          "ge",
+          40000
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Full",
+    "name": "别刷了哥",
+    "tier": "史诗",
+    "condition": "单局100,000灵魂",
+    "family": "wealth",
+    "rules": [
+      [
+        [
+          "net_worth",
+          "ge",
+          100000
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Did everything",
+    "name": "活全干了",
+    "tier": "稀有",
+    "condition": "至少4个类别评级达到70%",
+    "family": "Did everything",
+    "rules": [],
+    "deferred_reason": "缺少可比的类别评级，不能用MVP分项代替"
+  },
+  {
+    "original": "Field Commander",
+    "name": "战场总指挥",
+    "tier": "稀有",
+    "condition": "参团率至少75%，参与击杀至少20次",
+    "family": "participation",
+    "rules": [
+      [
+        [
+          "kill_participation",
+          "ge",
+          0.75
+        ],
+        [
+          "participations",
+          "ge",
+          20
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Fortress",
+    "name": "移动堡垒",
+    "tier": "稀有",
+    "condition": "每分钟吸收伤害2,500，口径待核",
+    "family": "Fortress",
+    "rules": [],
+    "deferred_reason": "吸收伤害口径待核"
+  },
+  {
+    "original": "Heat wave",
+    "name": "手感火热",
+    "tier": "稀有",
+    "condition": "15连杀",
+    "family": "Heat wave",
+    "rules": [],
+    "deferred_reason": "缺少完整击杀时间线"
+  },
+  {
+    "original": "Hospital",
+    "name": "战地医院",
+    "tier": "稀有",
+    "condition": "队友治疗每分钟600",
+    "family": "healing",
+    "rules": [
+      [
+        [
+          "ally_heal_per_minute",
+          "ge",
+          600
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Lane Dominator",
+    "name": "线霸",
+    "tier": "稀有",
+    "condition": "比赛前半场至少15次击杀",
+    "family": "Lane Dominator",
+    "rules": [],
+    "deferred_reason": "缺少完整击杀时间线"
+  },
+  {
+    "original": "Monster",
+    "name": "野兽",
+    "tier": "稀有",
+    "condition": "单局20次击杀",
+    "family": "kills",
+    "rules": [
+      [
+        [
+          "kills",
+          "ge",
+          20
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Prison Warden",
+    "name": "牢头",
+    "tier": "稀有",
+    "condition": "控制评分4,000，评分公式待核",
+    "family": "Prison Warden",
+    "rules": [],
+    "deferred_reason": "控制评分公式待核"
+  },
+  {
+    "original": "Soul Harvester",
+    "name": "灵魂收割机",
+    "tier": "稀有",
+    "condition": "灵魂每分钟1,400",
+    "family": "souls",
+    "rules": [
+      [
+        [
+          "souls_per_minute",
+          "ge",
+          1400
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Demolitionist",
+    "name": "强拆办",
+    "tier": "稀有",
+    "condition": "建筑伤害每分钟1,000，或单局30,000",
+    "family": "building",
+    "rules": [
+      [
+        [
+          "building_per_minute",
+          "ge",
+          1000
+        ]
+      ],
+      [
+        [
+          "boss_damage",
+          "ge",
+          30000
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Precision Master",
+    "name": "自动瞄准",
+    "tier": "稀有",
+    "condition": "命中率80%；对英雄射击至少100次",
+    "family": "accuracy",
+    "rules": [
+      [
+        [
+          "hero_accuracy",
+          "ge",
+          0.8
+        ],
+        [
+          "hero_shots",
+          "ge",
+          100
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Damage Dreadnought",
+    "name": "无畏巨兽",
+    "tier": "少见",
+    "condition": "英雄伤害每分钟1,500",
+    "family": "damage",
+    "rules": [
+      [
+        [
+          "damage_per_minute",
+          "ge",
+          1500
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Fisticuffs Firewall",
+    "name": "振刀宗师",
+    "tier": "少见",
+    "condition": "成功招架20次",
+    "family": "parry",
+    "rules": [
+      [
+        [
+          "parry_success",
+          "ge",
+          20
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Fun Police",
+    "name": "谁让你玩的",
+    "tier": "少见",
+    "condition": "控制评分2,000，评分公式待核",
+    "family": "Fun Police",
+    "rules": [],
+    "deferred_reason": "控制评分公式待核"
+  },
+  {
+    "original": "Huge",
+    "name": "有钱任性",
+    "tier": "少见",
+    "condition": "单局75,000灵魂",
+    "family": "wealth",
+    "rules": [
+      [
+        [
+          "net_worth",
+          "ge",
+          75000
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Medic",
+    "name": "医疗兵救一下",
+    "tier": "少见",
+    "condition": "队友治疗每分钟400",
+    "family": "healing",
+    "rules": [
+      [
+        [
+          "ally_heal_per_minute",
+          "ge",
+          400
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "On fire",
+    "name": "杀红眼了",
+    "tier": "少见",
+    "condition": "10连杀",
+    "family": "On fire",
+    "rules": [],
+    "deferred_reason": "缺少完整击杀时间线"
+  },
+  {
+    "original": "Skull Collector",
+    "name": "TPS大师",
+    "tier": "少见",
+    "condition": "爆头率30%；对英雄射击至少100次、命中至少30次",
+    "family": "headshots",
+    "rules": [
+      [
+        [
+          "hero_headshot_rate",
+          "ge",
+          0.3
+        ],
+        [
+          "hero_shots",
+          "ge",
+          100
+        ],
+        [
+          "hero_hits",
+          "ge",
+          30
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Team Player",
+    "name": "团队发动机",
+    "tier": "少见",
+    "condition": "助攻至少25次，且至少为击杀数的5倍",
+    "family": "assists",
+    "rules": [
+      [
+        [
+          "assists",
+          "ge",
+          25
+        ],
+        [
+          "assist_ratio",
+          "ge",
+          5
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Unkillable",
+    "name": "一命通关",
+    "tier": "少见",
+    "condition": "单局0死亡",
+    "family": "immortal",
+    "rules": [
+      [
+        [
+          "deaths",
+          "eq",
+          0
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Sharpshooter",
+    "name": "神枪手",
+    "tier": "少见",
+    "condition": "命中率70%；对英雄射击至少100次",
+    "family": "accuracy",
+    "rules": [
+      [
+        [
+          "hero_accuracy",
+          "ge",
+          0.7
+        ],
+        [
+          "hero_shots",
+          "ge",
+          100
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Sieger",
+    "name": "工头",
+    "tier": "少见",
+    "condition": "建筑伤害每分钟750",
+    "family": "building",
+    "rules": [
+      [
+        [
+          "building_per_minute",
+          "ge",
+          750
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Toxic",
+    "name": "奶妈天敌",
+    "tier": "少见",
+    "condition": "单局阻止治疗至少10,000",
+    "family": "antiheal",
+    "rules": [
+      [
+        [
+          "heal_prevented",
+          "ge",
+          10000
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Damage powerhouse",
+    "name": "输出在线",
+    "tier": "常见",
+    "condition": "英雄伤害每分钟1,000",
+    "family": "damage",
+    "rules": [
+      [
+        [
+          "damage_per_minute",
+          "ge",
+          1000
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Farmer",
+    "name": "刷起来了",
+    "tier": "常见",
+    "condition": "灵魂每分钟1,200",
+    "family": "souls",
+    "rules": [
+      [
+        [
+          "souls_per_minute",
+          "ge",
+          1200
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Headhunter",
+    "name": "我说点头伤害特别高",
+    "tier": "常见",
+    "condition": "爆头率25%；对英雄射击至少100次、命中至少30次",
+    "family": "headshots",
+    "rules": [
+      [
+        [
+          "hero_headshot_rate",
+          "ge",
+          0.25
+        ],
+        [
+          "hero_shots",
+          "ge",
+          100
+        ],
+        [
+          "hero_hits",
+          "ge",
+          30
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Iron Wall",
+    "name": "防弹衣",
+    "tier": "常见",
+    "condition": "每分钟吸收伤害2,000，口径待核",
+    "family": "Iron Wall",
+    "rules": [],
+    "deferred_reason": "吸收伤害口径待核"
+  },
+  {
+    "original": "Jab Jammer",
+    "name": "爱我别肘",
+    "tier": "常见",
+    "condition": "成功招架10次",
+    "family": "parry",
+    "rules": [
+      [
+        [
+          "parry_success",
+          "ge",
+          10
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Jack of All Trades",
+    "name": "五边形战士",
+    "tier": "常见",
+    "condition": "所有类别评级高于50%",
+    "family": "Jack of All Trades",
+    "rules": [],
+    "deferred_reason": "缺少可比的类别评级，不能用MVP分项代替"
+  },
+  {
+    "original": "Playmaker",
+    "name": "来打架了",
+    "tier": "常见",
+    "condition": "参团率至少60%，参与击杀至少20次",
+    "family": "participation",
+    "rules": [
+      [
+        [
+          "kill_participation",
+          "ge",
+          0.6
+        ],
+        [
+          "participations",
+          "ge",
+          20
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Pusher",
+    "name": "城管",
+    "tier": "常见",
+    "condition": "建筑伤害每分钟500",
+    "family": "building",
+    "rules": [
+      [
+        [
+          "building_per_minute",
+          "ge",
+          500
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Spammer",
+    "name": "一招鲜吃遍天",
+    "tier": "常见",
+    "condition": "至少50%的伤害来自同一技能，伤害归属口径待核",
+    "family": "Spammer",
+    "rules": [],
+    "deferred_reason": "缺少已核实的技能伤害归属"
+  },
+  {
+    "original": "Specialist",
+    "name": "偏科战神",
+    "tier": "常见",
+    "condition": "一个类别评分至少为其余各类别的2倍",
+    "family": "Specialist",
+    "rules": [],
+    "deferred_reason": "缺少可比的类别评级，不能用MVP分项代替"
+  },
+  {
+    "original": "Supportive",
+    "name": "闻一下",
+    "tier": "常见",
+    "condition": "助攻至少15次，且至少为击杀数的3倍",
+    "family": "assists",
+    "rules": [
+      [
+        [
+          "assists",
+          "ge",
+          15
+        ],
+        [
+          "assist_ratio",
+          "ge",
+          3
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Bubble Burster",
+    "name": "好好补刀！",
+    "tier": "常见",
+    "condition": "兵线反补至少10次；现有总反补是否等同兵线反补待核",
+    "family": "Bubble Burster",
+    "rules": [],
+    "deferred_reason": "兵线反补与总反补口径待核"
+  },
+  {
+    "original": "AFK Jungler",
+    "name": "刷了送",
+    "tier": "整活",
+    "condition": "每分钟伤害小于 500，每分钟吸收伤害小于 1500，每分钟灵魂大于1000",
+    "family": "AFK Jungler",
+    "rules": [],
+    "deferred_reason": "吸收伤害口径待核"
+  },
+  {
+    "original": "Coward",
+    "name": "忍者神龟",
+    "tier": "整活",
+    "condition": "承受伤害每分钟低于300",
+    "family": "low_taken",
+    "rules": [
+      [
+        [
+          "taken_per_minute",
+          "lt",
+          300
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Feeder",
+    "name": "ATM",
+    "tier": "整活",
+    "condition": "至少10次死亡，且死亡数至少为击杀数的3倍",
+    "family": "deaths",
+    "rules": [
+      [
+        [
+          "deaths",
+          "ge",
+          10
+        ],
+        [
+          "death_ratio",
+          "ge",
+          3
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Fell Off",
+    "name": "伤仲永",
+    "tier": "整活",
+    "condition": "至少70%的击杀发生在比赛前半场",
+    "family": "Fell Off",
+    "rules": [],
+    "deferred_reason": "缺少完整击杀时间线"
+  },
+  {
+    "original": "Late Bloomer",
+    "name": "出山即守家",
+    "tier": "整活",
+    "condition": "至少70%的击杀发生在比赛后半场",
+    "family": "Late Bloomer",
+    "rules": [],
+    "deferred_reason": "缺少完整击杀时间线"
+  },
+  {
+    "original": "Nerf gun",
+    "name": "滋水枪",
+    "tier": "整活",
+    "condition": "英雄伤害每分钟不超过400",
+    "family": "low_damage",
+    "rules": [
+      [
+        [
+          "damage_per_minute",
+          "le",
+          400
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Preservationist",
+    "name": "文保工作者",
+    "tier": "整活",
+    "condition": "单局建筑伤害为0",
+    "family": "no_building",
+    "rules": [
+      [
+        [
+          "boss_damage",
+          "eq",
+          0
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  },
+  {
+    "original": "Swiss Cheese Defense",
+    "name": "格挡有延迟",
+    "tier": "整活",
+    "condition": "至少20次招架尝试，成功次数为0",
+    "family": "missed_parry",
+    "rules": [
+      [
+        [
+          "parry_attempts",
+          "ge",
+          20
+        ],
+        [
+          "parry_success",
+          "eq",
+          0
+        ]
+      ]
+    ],
+    "deferred_reason": null
+  }
+]

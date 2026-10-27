@@ -1,0 +1,6 @@
+name: astrbot_plugin_deadbot
+display_name: DeadBot 群友战报
+desc: 免费 Deadlock API 群友战报、详情补全、日报、个人六维建议和本地化成就。
+version: v0.8.0
+author: Tetra
+repo: https://github.com/TetraAcc/astrbot_plugin_deadbot
