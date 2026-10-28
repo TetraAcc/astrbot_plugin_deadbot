@@ -82,7 +82,7 @@ def earned_achievements(player, scored, duration):
 
 
 def achievement_rules(selection="全部"):
-    """Describe all implemented and deferred rules using the user's names.
+    """Describe only achievements backed by implemented rules.
 
     Args:
         selection: All rules, a rarity label, or an exact localized award name.
@@ -90,11 +90,12 @@ def achievement_rules(selection="全部"):
     Returns:
         Chinese rule catalog or a short usage hint for an unknown selection.
     """
-    selected = [a for a in CATALOG if selection in ("全部", a["tier"], a["name"])]
+    enabled = [a for a in CATALOG if a["rules"]]
+    selected = [a for a in enabled if selection in ("全部", a["tier"], a["name"])]
     if not selected:
         return "用法：/成就规则 [全部、史诗、稀有、少见、常见、整活或成就名称]"
     lines = [
-        "🏆 DeadBot 成就规则 · 38项已启用 / 18项待补数据",
+        f"🏆 DeadBot 成就规则 · {len(enabled)}项",
         "独立于MVP。同系列保留最高档，战报每人显示最多3项；/成就详情 比赛ID 查看本局全部成就。",
         "灵魂/分钟=最终灵魂÷比赛分钟，治疗只统计队友治疗。命中率=英雄命中/射击，爆头率=英雄爆头/命中。",
     ]
@@ -104,12 +105,7 @@ def achievement_rules(selection="全部"):
             continue
         lines.append("\n" + tier)
         for award in rows:
-            if award["rules"]:
-                lines.append(f"✅ {award['name']}：{award['condition']}")
-            else:
-                lines.append(
-                    f"⏳ {award['name']}：{award['condition']}；暂未启用，{award['deferred_reason']}"
-                )
+            lines.append(f"✅ {award['name']}：{award['condition']}")
     return "\n".join(lines)
 
 

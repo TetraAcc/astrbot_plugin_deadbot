@@ -11,6 +11,6 @@
     "default": [
       "12345678=群友昵称"
     ],
-    "hint": "每项格式：Account ID=群内称呼。例：12345678=群友昵称。不要填写 SteamID64。"
+    "hint": "每项格式：Account ID=群内称呼。Account ID 是 Steam 账号的短数字编号；SteamID3 [U:1:12345678] 取12345678。普通个人账号可用 SteamID64-76561197960265728 换算。不要直接填写17位SteamID64；详见 README。"
   }
 }

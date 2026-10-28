@@ -9,6 +9,7 @@ import aiohttp
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
+from astrbot.core.agent.message import TextPart
 from astrbot.core.star.filter.command import GreedyStr
 
 from .achievements import achievement_rules, make_achievement_report
@@ -44,7 +45,7 @@ class DeadBot(Star):
 
     @filter.on_llm_request()
     async def current_roster_context(self, event: AstrMessageEvent, request):
-        """让 AI 使用当前插件配置中的名单，避免人格或旧对话中的过期名单。"""
+        """以临时内容提供当前名单，不改写系统提示词或保存到对话历史。"""
         sender = str(getattr(event, "get_sender_id", lambda: "")() or "")
         if sender == "42ED9D8D2C43EFF82D920D082570E4D1":
             return
@@ -63,7 +64,7 @@ class DeadBot(Star):
         text += "\n现有指令：/群友名单、/同步（同义：同步历史、刷新） 群友称呼或全部、/绑定 群友称呼、/最新（同义：最新数据、最新比赛）、/分析（同义：打法分析） [群友称呼] [标准或排位或全部]、/英雄统计 群友称呼、/群友画像 群友称呼、/战报 比赛ID、/评分详情 比赛ID、/评分规则。最新和分析不指定群友时查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报使用本地 DeadBot 贡献评分，不是 StatLocker 分数；名单内最低分不代表输局责任。反补、招架、命中率、爆头率不计 MVP。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
         text += "\n/帮助（同义：指令、deadbot帮助、deadbothelp）查看完整指令。/成就详情（同义：成就） 比赛ID 查询本局全部个人成就；/成就规则 [类别或名称] 查看规则。成就独立于MVP，仅按已核实字段触发，不编造连杀、控制或打法类别评级。"
         text += "\n/日报 [群友称呼或全部] [今天、昨天或YYYY-MM-DD] 查看本地每日总结，默认全部；/建议（同义：打法建议） [群友称呼] [标准或排位或全部] 默认自己；/补全 [群友称呼或全部] 补抓近期缺失详情。同步历史后自动补详情，每轮最多25场，已有详情复用。个人六维为输出、发育、承伤、辅助、前期、推进，只与自己的同英雄同模式历史比较，不是StatLocker类别评分，不改变MVP。发育和承伤高不等于打得好，不以老玩家分数要求新手；建议只指出复盘方向，不臆测走位、出装或玩家意图。"
-        request.system_prompt = (request.system_prompt or "") + text
+        request.extra_user_content_parts.append(TextPart(text=text).mark_as_temp())
 
     @filter.command("帮助", alias={"指令", "deadbot帮助", "deadbothelp"})
     async def help_commands(self, event: AstrMessageEvent, detail: str = ""):
@@ -492,24 +493,12 @@ class DeadBot(Star):
     @filter.command("评分规则")
     async def scoring_rules(self, event: AstrMessageEvent):
         yield event.plain_result(
-            "DeadBot 贡献评分 v3（非 StatLocker 分数）\n"
-            "展示等级：90起S、80起A+、70起A、60起B、50起C、40起D、低于40为E。\n"
-            "前期18：前20分钟伤害12、助攻6\n输出32：后期伤害12、整场击杀20\n"
-            "推进15：建筑12、清兵3\n承伤15：实际承伤10、减免3、吸收2\n"
-            "辅助20：后期助攻10、队友治疗4、队友护盾3、阻止治疗3\n"
-            "小项=参照权重×0.6×个人数据÷全场12人均值；小项不封顶。全场零值或缺字段统一调整权重。\n"
-            "治疗、护盾、阻止治疗还乘以 数据÷(数据+每分钟量级×比赛分钟)，量级依次50、20、50。\n"
-            "死亡成本C逐次按135×√(复活秒数÷8)累计；D为比赛内复活等待秒数。\n"
-            "死亡扣分=min(25,40×D÷比赛秒数+5×C÷全场平均C×贡献系数)。贡献系数=√(全场平均基础分÷max(个人基础分,1))，限制0.75～1.5。\n"
-            "兵野经济效率奖励0～5：贡献不低于队伍平均、兵野灵魂占比低于贡献占比才奖励。\n"
-            "先累计原始贡献P=五维合计-死亡扣分+经济奖励，再统一对全场12人标准化。\n"
-            "z=(P-全场平均P)÷max(12,全场总体标准差)，映射分=50+25×z。\n"
-            "映射分超过90时改为90+10×(1-exp(-(映射分-90)÷10))，最终限制0～100。\n"
-            "雷达分项及额外增减展示原始贡献，总评分展示标准化结果。相同贡献得50分；这是本局相对表现，不是绝对实力分。\n"
-            "不足20分钟：后期伤害12转前期伤害，后期助攻10转前期助攻。\n"
-            "反补、招架、命中率、爆头率、击杀参与率仅趣味展示，不计MVP。\n"
-            "仅标准／排位；核心数据缺失、队伍不完整或弃赛时不评选。\n"
-            "/战报 比赛ID｜/评分详情 比赛ID｜/战报 比赛ID 刷新"
+            "DeadBot 贡献评分说明\n"
+            "结合前期、输出、推进、承伤和辅助等比赛数据，参考死亡及经济效率，观察本场相对表现。\n"
+            "这是 DeadBot 自定义评分，不是 StatLocker 分数，也不代表玩家的绝对实力。\n"
+            "仅在符合条件且数据完整的标准、排位比赛中评分；数据不足、队伍不完整或有人弃赛时不评选。\n"
+            "成就独立于评分，名单内最低分不代表输局责任。\n"
+            "/战报 比赛ID 查看战报；/评分详情 比赛ID 查看完整数据。"
         )
 
     @filter.command("评分详情")
