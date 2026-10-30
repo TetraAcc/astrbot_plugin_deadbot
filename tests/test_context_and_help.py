@@ -11,6 +11,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 # 直接加载安装环境中的真实内容模型，避免导入 astrbot 时初始化默认配置目录。
 astrbot_spec = importlib.util.find_spec("astrbot")
@@ -91,6 +92,31 @@ class ContextTests(unittest.IsolatedAsyncioTestCase):
         message = UserMessageSegment(content=[TextPart(text="user message"), *request.extra_user_content_parts])
         dumped = dump_messages_with_checkpoints([message])
         self.assertEqual(dumped[0]["content"], [{"type": "text", "text": "user message"}])
+
+    async def test_formerly_exempt_sender_uses_the_same_context(self):
+        # An anonymous stand-in for the removed exception. The handler must no
+        # longer inspect chat identity, regardless of the sender's actual value.
+        event = SimpleNamespace(get_sender_id=Mock(return_value="formerly-exempt-test-sender"))
+        ordinary = SimpleNamespace(extra_user_content_parts=[])
+        formerly_exempt = SimpleNamespace(extra_user_content_parts=[])
+        await self.plugin.current_roster_context(self.event, ordinary)
+        await self.plugin.current_roster_context(event, formerly_exempt)
+        event.get_sender_id.assert_not_called()
+        self.assertEqual(ordinary.extra_user_content_parts[0].text, formerly_exempt.extra_user_content_parts[0].text)
+        self.assertTrue(formerly_exempt.extra_user_content_parts[0]._no_save)
+
+    async def test_invalid_roster_after_valid_request_does_not_reuse_it(self):
+        first = SimpleNamespace(extra_user_content_parts=[])
+        await self.plugin.current_roster_context(self.event, first)
+        self.assertIn("小明", first.extra_user_content_parts[0].text)
+        self.plugin.config["roster"] = ["not-an-account=stale-name"]
+        next_request = SimpleNamespace(extra_user_content_parts=[])
+        await self.plugin.current_roster_context(self.event, next_request)
+        text = next_request.extra_user_content_parts[0].text
+        self.assertIn("当前名单配置无效", text)
+        self.assertIn("不能引用人格或旧对话中的名单", text)
+        self.assertNotIn("小明", text)
+        self.assertNotIn("stale-name", text)
 
     async def test_invalid_roster_is_temporary_and_does_not_reuse_old_names(self):
         self.plugin.config["roster"] = ["76561197972611406=invalid"]

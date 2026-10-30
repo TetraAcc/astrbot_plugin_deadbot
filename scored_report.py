@@ -33,13 +33,12 @@ def grade(value):
     return "E"
 
 
-def make_scored_report(payload, roster, detailed=False, markdown=False):
+def make_scored_report(payload, roster, markdown=False):
     """Render compact match summaries and player blocks with visual anchors.
 
     Args:
         payload: Normalized match and cached scoring result.
         roster: Account IDs mapped to current display names.
-        detailed: Retained for command compatibility; both commands use this layout.
         markdown: Enable emphasis for clients that render Markdown.
 
     Returns:
