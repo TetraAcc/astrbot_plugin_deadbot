@@ -10,7 +10,6 @@ from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.agent.message import TextPart
-from astrbot.core.star.filter.command import GreedyStr
 
 from .achievements import achievement_rules, make_achievement_report
 from .analysis import PlayerAnalysis
@@ -22,7 +21,6 @@ from .input import parse_match_id
 from .insights import PersonalInsights
 from .library import Library
 from .report import parse_roster
-from .scored_report import make_scored_report
 from .scoring import VERSION
 
 
@@ -46,9 +44,6 @@ class DeadBot(Star):
     @filter.on_llm_request()
     async def current_roster_context(self, event: AstrMessageEvent, request):
         """以临时内容提供当前名单，不改写系统提示词或保存到对话历史。"""
-        sender = str(getattr(event, "get_sender_id", lambda: "")() or "")
-        if sender == "42ED9D8D2C43EFF82D920D082570E4D1":
-            return
         try:
             roster = parse_roster(self.config.get("roster", []))
             context = json.dumps(
@@ -61,7 +56,7 @@ class DeadBot(Star):
             )
         except ValueError:
             text = "\n[DeadBot 当前配置]\n当前名单配置无效，不能引用人格或旧对话中的名单。请引导用户使用 /群友名单 检查配置。"
-        text += "\n现有指令：/群友名单、/同步（同义：同步历史、刷新） 群友称呼或全部、/绑定 群友称呼、/最新（同义：最新数据、最新比赛）、/分析（同义：打法分析） [群友称呼] [标准或排位或全部]、/英雄统计 群友称呼、/群友画像 群友称呼、/战报 比赛ID、/评分详情 比赛ID、/评分规则。最新和分析不指定群友时查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报使用本地 DeadBot 贡献评分，不是 StatLocker 分数；名单内最低分不代表输局责任。反补、招架、命中率、爆头率不计 MVP。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
+        text += "\n现有指令：/群友名单、/同步（同义：同步历史、刷新） 群友称呼或全部、/绑定 群友称呼、/最新（同义：最新数据、最新比赛）、/分析（同义：打法分析） [群友称呼] [标准或排位或全部]、/英雄统计 群友称呼、/群友画像 群友称呼、/战报（旧别名：评分详情） 比赛ID、/评分规则。最新和分析不指定群友时查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报使用本地 DeadBot 贡献评分，不是 StatLocker 分数；名单内最低分不代表输局责任。反补、招架、命中率、爆头率不计 MVP。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
         text += "\n/帮助（同义：指令、deadbot帮助、deadbothelp）查看完整指令。/成就详情（同义：成就） 比赛ID 查询本局全部个人成就；/成就规则 [类别或名称] 查看规则。成就独立于MVP，仅按已核实字段触发，不编造连杀、控制或打法类别评级。"
         text += "\n/日报 [群友称呼或全部] [今天、昨天或YYYY-MM-DD] 查看本地每日总结，默认全部；/建议（同义：打法建议） [群友称呼] [标准或排位或全部] 默认自己；/补全 [群友称呼或全部] 补抓近期缺失详情。同步历史后自动补详情，每轮最多25场，已有详情复用。个人六维为输出、发育、承伤、辅助、前期、推进，只与自己的同英雄同模式历史比较，不是StatLocker类别评分，不改变MVP。发育和承伤高不等于打得好，不以老玩家分数要求新手；建议只指出复盘方向，不臆测走位、出装或玩家意图。"
         request.extra_user_content_parts.append(TextPart(text=text).mark_as_temp())
@@ -101,7 +96,7 @@ class DeadBot(Star):
             match_id: Match ID or supported match link.
             refresh: Optional explicit API refresh.
         """
-        async for response in self.report(
+        async for response in self._report(
             event, match_id, refresh, achievements_only=True
         ):
             yield response
@@ -395,7 +390,7 @@ class DeadBot(Star):
         except (sqlite3.Error, OSError):
             yield event.plain_result("本地历史库暂不可用，请稍后重试。")
             return
-        async for response in self.report(event, match_id):
+        async for response in self._report(event, match_id):
             yield response
 
     @filter.command("分析", alias={"打法分析"})
@@ -498,26 +493,36 @@ class DeadBot(Star):
             "这是 DeadBot 自定义评分，不是 StatLocker 分数，也不代表玩家的绝对实力。\n"
             "仅在符合条件且数据完整的标准、排位比赛中评分；数据不足、队伍不完整或有人弃赛时不评选。\n"
             "成就独立于评分，名单内最低分不代表输局责任。\n"
-            "/战报 比赛ID 查看战报；/评分详情 比赛ID 查看完整数据。"
+            "/战报 比赛ID 查看战报（兼容旧别名：/评分详情）。"
         )
 
-    @filter.command("评分详情")
-    async def score_details(
-        self, event: AstrMessageEvent, match_id: str = "", refresh: str = ""
-    ):
-        async for response in self.report(event, match_id, refresh, detailed=True):
-            yield response
-
-    @filter.command("战报")
+    @filter.command("战报", alias={"评分详情"})
     async def report(
         self,
         event: AstrMessageEvent,
         match_id: str = "",
         refresh: str = "",
-        detailed=False,
-        achievements_only=False,
     ):
         """按比赛 ID 查询群友战报，例如 /战报 比赛ID。"""
+        # CommandFilter ignores surplus tokens after the declared parameters.
+        # Check the same whitespace-separated input before starting any work.
+        if len(event.get_message_str().split()) > 3:
+            yield event.plain_result(
+                "用法：/战报 比赛ID [刷新]（旧别名：/评分详情），不接受额外参数。"
+            )
+            return
+        async for response in self._report(event, match_id, refresh):
+            yield response
+
+    async def _report(
+        self,
+        event: AstrMessageEvent,
+        match_id: str = "",
+        refresh: str = "",
+        *,
+        achievements_only=False,
+    ):
+        """共享查询流程；成就模式只能由内部调用通过关键字指定。"""
         try:
             match_id = parse_match_id(match_id)
         except ValueError:
@@ -629,11 +634,7 @@ class DeadBot(Star):
         report = (
             make_achievement_report(payload, roster)
             if achievements_only
-            else (
-                make_scored_report(payload, roster, detailed=True, markdown=markdown)
-                if detailed
-                else make_report(payload, roster, markdown=markdown)
-            )
+            else make_report(payload, roster, markdown=markdown)
         )
         try:
             await asyncio.to_thread(self.history.record, payload, roster)
