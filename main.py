@@ -549,7 +549,32 @@ class DeadBot(Star):
         yield event.plain_result(f"正在查询 StatLocker 比赛 {mid}，优先使用缓存；未缓存时进入采集队列，每场最多约两分钟。")
         try:
             data, cached = await self.statlocker.get(mid, focus_account, refresh=refresh == "刷新")
-            report = render_statlocker(data, focus_account, cached)
+            raw_match = None
+            try:
+                raw_match = await asyncio.to_thread(self.history.cached_detail, mid)
+            except Exception:
+                pass
+            if raw_match is None:
+                try:
+                    import aiohttp
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                        async with session.get(
+                            f"https://api.deadlock-api.com/v1/matches/{mid}/metadata",
+                            params={"disable_steam": "true"},
+                            allow_redirects=False,
+                        ) as resp:
+                            if resp.status == 200:
+                                raw_match = await resp.json()
+                                try:
+                                    await asyncio.to_thread(self.history.cache_detail, mid, raw_match)
+                                    from .deadlock import normalize
+                                    norm = normalize(raw_match, mid, compute_local_score=False)
+                                    await asyncio.to_thread(self.history.record, norm, roster)
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+            report = render_statlocker(data, focus_account, cached, raw_match=raw_match, roster=roster)
         except StatLockerError as exc:
             report = f"{exc}\n本次未取得 StatLocker 评分，不使用本地评分替代。"
         for page in text_pages(report, "战报"):

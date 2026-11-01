@@ -1,6 +1,6 @@
 name: astrbot_plugin_deadbot
 display_name: DeadBot 个人复盘
 desc: StatLocker 网页原站评分、个人战报、缓存排队与 Deadlock API 历史分析。
-version: v0.9.4
+version: v0.9.5
 author: Tetra
 repo: https://github.com/TetraAcc/astrbot_plugin_deadbot

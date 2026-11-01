@@ -4,7 +4,7 @@
 
 历史数据使用公开 Deadlock API；评分使用 StatLocker 网页，无需 StatLocker API Key。网页尚未收录或抓取失败时明确报错，不使用本地评分替代。
 
-当前版本：**v0.9.4**。版本记录见 [更新日志](CHANGELOG.md)。
+当前版本：**v0.9.5**。版本记录见 [更新日志](CHANGELOG.md)。
 
 ## 快速开始
 
