@@ -6,11 +6,15 @@
     "hint": "当前使用免费 Deadlock API，无需密钥。此项仅保留旧配置。"
   },
   "roster": {
-    "description": "群友名单",
+    "description": "可选群友名单（当前配置内共享）",
     "type": "list",
-    "default": [
-      "12345678=群友昵称"
-    ],
-    "hint": "每项格式：Account ID=群内称呼。Account ID 是 Steam 账号的短数字编号；SteamID3 [U:1:12345678] 取12345678。普通个人账号可用 SteamID64-76561197960265728 换算。不要直接填写17位SteamID64；详见 README。"
+    "default": [],
+    "hint": "可留空，个人绑定和查询无需名单。每项格式：Account ID=群内称呼。Account ID 是 Steam 账号的短数字编号；SteamID3 [U:1:12345678] 取12345678。普通个人账号可用 SteamID64-76561197960265728 换算。不要直接填写17位SteamID64；详见 README。"
+  },
+  "statlocker_python": {
+    "description": "采集环境 Python 路径（可选）",
+    "type": "string",
+    "default": "",
+    "hint": "留空使用机器人Python，需安装Playwright。Windows使用已安装的Edge；也可填独立采集环境的python.exe完整路径。"
   }
 }

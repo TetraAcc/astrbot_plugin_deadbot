@@ -24,7 +24,7 @@ def number(value):
     return value if type(value) is int and value >= 0 else None
 
 
-def normalize(raw, match_id, cached_score=None):
+def normalize(raw, match_id, cached_score=None, *, compute_local_score=True):
     info = raw.get("match_info") if isinstance(raw, dict) else None
     if not isinstance(info, dict) or str(info.get("match_id")) != match_id:
         raise ValueError("比赛 ID 不匹配")
@@ -93,6 +93,8 @@ def normalize(raw, match_id, cached_score=None):
         ):
             item[key] = number(latest.get(key))
         result["players"].append(item)
+    if not compute_local_score:
+        return result
     fingerprint = hashlib.sha256(
         json.dumps(raw, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
@@ -108,18 +110,19 @@ def normalize(raw, match_id, cached_score=None):
     return result
 
 
-def make_report(payload, roster, markdown=False):
+def make_report(payload, roster, markdown=False, personal=False):
     if isinstance(payload.get("scoring"), dict):
         from .scored_report import make_scored_report
 
-        return make_scored_report(payload, roster, markdown=markdown)
+        return make_scored_report(payload, roster, markdown=markdown, personal=personal)
     lines = [f"DeadBot 战报 · {payload['matchId']}"]
     duration = payload.get("duration_s")
     if duration is not None:
         lines.append(f"时长：{duration // 60} 分 {duration % 60} 秒")
     friends = [p for p in payload["players"] if p["account_id"] in roster]
     lines.append(
-        f"本局匹配 {len(friends)}/{len(roster)} 位名单群友（共 {len(payload['players'])} 名玩家）"
+        (f"个人复盘 | 全场 {len(payload['players'])} 名玩家" if personal else
+         f"本局匹配 {len(friends)}/{len(roster)} 位名单群友（共 {len(payload['players'])} 名玩家）")
     )
     for p in friends:
         result = (
@@ -148,7 +151,7 @@ def make_report(payload, roster, markdown=False):
         else:
             lines.append("战斗统计快照缺失，暂不展示伤害／治疗。")
     if not friends:
-        lines.append("本局没有名单内群友。")
+        lines.append("本局没有查询账号，请核对绑定或比赛编号。" if personal else "本局没有名单内群友。")
     lines.append(
         "当前为数据战报，未接入表现评分，不评选 MVP／背锅位。\n数据来源：Deadlock API"
     )

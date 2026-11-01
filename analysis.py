@@ -12,7 +12,9 @@ from .history import History
 from .library import Library
 from .scoring import _fun_stats, _snapshots
 
-VERSION = "deadbot-analysis-v1"
+from .match_history import valid_history, read_detail, merge_history
+
+VERSION = "deadbot-analysis-v2"
 MODES = {1: "标准比赛", 4: "排位"}
 
 
@@ -45,70 +47,18 @@ class PlayerAnalysis:
                     (account,),
                 )
             }
-            # Include queried details newer than the last history-list sync.
-            for mid, data in db.execute(
-                "SELECT match_id,data FROM deadlock_records WHERE account=?", (account,)
-            ):
-                if mid in entries:
-                    continue
+            known = set(entries)
+            known.update(mid for (mid,) in db.execute(
+                "SELECT match_id FROM deadlock_records WHERE account=?", (account,)))
+            valid = []
+            for mid in known:
                 packed = db.execute(
-                    "SELECT compressed_json FROM match_detail_cache WHERE match_id=?",
-                    (mid,),
+                    "SELECT compressed_json FROM match_detail_cache WHERE match_id=?", (mid,)
                 ).fetchone()
-                if not packed:
-                    continue
-                try:
-                    info = json.loads(gzip.decompress(packed[0]))["match_info"]
-                    player = next(
-                        p
-                        for p in info["players"]
-                        if str(p.get("account_id")) == account
-                    )
-                except (
-                    ValueError,
-                    OSError,
-                    EOFError,
-                    KeyError,
-                    StopIteration,
-                    TypeError,
-                    zlib.error,
-                ):
-                    continue
-                outcome = 1 if info.get("winning_team") == player.get("team") else 2
-                entries[mid] = {
-                    "match_id": int(mid),
-                    "hero_id": player.get("hero_id"),
-                    "start_time": info.get("start_time"),
-                    "game_mode": info.get("game_mode"),
-                    "match_mode": info.get("match_mode"),
-                    "player_match_outcome": outcome
-                    if info.get("winning_team") in (0, 1)
-                    else None,
-                    "player_kills": player.get("kills"),
-                    "player_deaths": player.get("deaths"),
-                    "player_assists": player.get("assists"),
-                    "net_worth": player.get("net_worth"),
-                    "match_duration_s": info.get("duration_s"),
-                    "team_abandoned": any(
-                        (number(p.get("abandon_match_time_s")) or 0) > 0
-                        for p in info["players"]
-                    ),
-                    "abandoned_time_s": player.get("abandon_match_time_s"),
-                    "not_scored": info.get("not_scored"),
-                }
-            valid = [
-                p
-                for p in entries.values()
-                if type(p.get("game_mode")) is int
-                and p["game_mode"] == 1
-                and type(p.get("match_mode")) is int
-                and p["match_mode"] == mode
-                and type(p.get("player_match_outcome")) is int
-                and p["player_match_outcome"] in (1, 2)
-                and p.get("team_abandoned") is not True
-                and p.get("not_scored") is not True
-                and (number(p.get("abandoned_time_s")) or 0) == 0
-            ]
+                raw = read_detail(packed[0], mid) if packed else None
+                row = merge_history(entries.get(mid, {}), raw, account, mid)
+                if row is not None and valid_history(row) and row["match_mode"] == mode:
+                    valid.append(row)
             selected = sorted(
                 valid,
                 key=lambda p: (

@@ -54,6 +54,16 @@ class History:
         finally:
             db.close()
 
+    def unbind_sender(self, platform, sender):
+        """Remove one chat identity's preference without affecting other users."""
+        db = self.connect()
+        try:
+            with db:
+                db.execute("DELETE FROM sender_bindings WHERE platform=? AND sender=?",
+                           (platform, sender))
+        finally:
+            db.close()
+
     def unbind_account(self, account: str) -> int:
         """Remove sender bindings associated with a removed account.
 

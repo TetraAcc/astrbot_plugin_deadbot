@@ -33,7 +33,7 @@ def grade(value):
     return "E"
 
 
-def make_scored_report(payload, roster, markdown=False):
+def make_scored_report(payload, roster, markdown=False, personal=False):
     """Render compact match summaries and player blocks with visual anchors.
 
     Args:
@@ -53,11 +53,12 @@ def make_scored_report(payload, roster, markdown=False):
     for p in friends:
         groups.setdefault(p.get("team"), []).append(p)
     lines = [f"🏆 {marker}DeadBot 战报 · {payload['matchId']}{marker}"]
+    lines.append("评分模型：DeadBot v3；评级仅为本地分档，不代表全服百分位。")
     summary = []
     duration = payload.get("duration_s")
     if duration is not None:
         summary.append(f"⏱️ 时长：{duration // 60:02d}:{duration % 60:02d}")
-    summary.append(f"👥 群友：{len(friends)}/{len(roster)}")
+    summary.append(f"个人复盘 | 全场 {len(payload['players'])} 人" if personal else f"👥 群友：{len(friends)}/{len(roster)}")
     outcomes = {p.get("won") for p in friends}
     if len(outcomes) == 1:
         won = next(iter(outcomes))
@@ -65,7 +66,7 @@ def make_scored_report(payload, roster, markdown=False):
         summary.append(f"🏁 结果：{result}")
     lines.append(" | ".join(summary))
     if not friends:
-        return "\n".join(lines + ["本局没有名单内群友。", "数据来源：Deadlock API"])
+        return "\n".join(lines + ["本局没有查询账号，请核对绑定或比赛编号。" if personal else "本局没有名单内群友。", "数据来源：Deadlock API"])
     if len(outcomes) > 1:
         for group in groups.values():
             won = group[0].get("won")

@@ -1,11 +1,9 @@
 """Local daily recaps and hero-matched personal observations, separate from MVP."""
 
-import gzip
 import hashlib
 import json
 import math
 import statistics
-import zlib
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -15,7 +13,9 @@ from .history import History
 from .library import CHINA_TIME, Library
 from .scoring import _cumulative, _fun_stats, _gold, _number, _snapshots
 
-VERSION = "deadbot-insights-v1"
+from .match_history import valid_history, read_detail, merge_history
+
+VERSION = "deadbot-insights-v2"
 AXES = {
     "输出": {"damage": 0.8, "kills": 0.2},
     "发育": {"farm": 1},
@@ -24,30 +24,6 @@ AXES = {
     "前期": {"early_damage": 0.7, "early_assists": 0.3},
     "推进": {"building": 0.8, "creeps": 0.2},
 }
-
-
-def valid_history(row):
-    return (
-        type(row.get("game_mode")) is int
-        and row["game_mode"] == 1
-        and type(row.get("match_mode")) is int
-        and row["match_mode"] in (1, 4)
-        and type(row.get("player_match_outcome")) is int
-        and row["player_match_outcome"] in (1, 2)
-        and row.get("team_abandoned") is not True
-        and row.get("not_scored") is not True
-        and (_number(row.get("abandoned_time_s")) or 0) == 0
-    )
-
-
-def read_detail(blob, mid):
-    try:
-        raw = json.loads(gzip.decompress(blob))
-        if str(raw["match_info"]["match_id"]) == str(mid):
-            return raw
-    except (ValueError, OSError, EOFError, KeyError, TypeError, zlib.error):
-        pass
-    return None
 
 
 def detail_metrics(raw, account):
@@ -183,41 +159,8 @@ class PersonalInsights:
                         result.append(saved)
                     continue
                 raw = read_detail(blob, mid) if blob else None
-                if raw:
-                    info = raw["match_info"]
-                    players = info.get("players", [])
-                    player = next(
-                        (p for p in players if str(p.get("account_id")) == account),
-                        None,
-                    )
-                    if not player:
-                        updates.append((account, mid, source_hash, "null"))
-                        continue
-                    won = info.get("winning_team")
-                    row.update(
-                        {
-                            "match_id": mid,
-                            "start_time": info.get("start_time"),
-                            "match_duration_s": info.get("duration_s"),
-                            "hero_id": player.get("hero_id"),
-                            "game_mode": info.get("game_mode"),
-                            "match_mode": info.get("match_mode"),
-                            "player_match_outcome": (
-                                1 if won == player.get("team") else 2
-                            )
-                            if type(won) is int and won in (0, 1)
-                            else None,
-                            "player_kills": player.get("kills"),
-                            "player_deaths": player.get("deaths"),
-                            "player_assists": player.get("assists"),
-                            "team_abandoned": any(
-                                (_number(p.get("abandon_match_time_s")) or 0) > 0
-                                for p in players
-                            ),
-                            "not_scored": info.get("not_scored"),
-                        }
-                    )
-                if not valid_history(row):
+                row = merge_history(row, raw, account, mid)
+                if row is None or not valid_history(row):
                     updates.append((account, mid, source_hash, "null"))
                     continue
                 row["match_id"] = mid
@@ -506,43 +449,6 @@ class PersonalInsights:
                         for i in range(3)
                     )
                 blocks.append(line)
-            best = None
-            awards = []
-            for row in rows:
-                mid = row["match_id"]
-                raw = self.history.cached_detail(mid) if mid not in payloads else None
-                if mid not in payloads:
-                    payloads[mid] = normalize(raw, mid) if raw else None
-                payload = payloads[mid]
-                if not payload:
-                    missing += 1
-                    continue
-                if not payload["scoring"].get("eligible"):
-                    continue
-                player = next(
-                    p for p in payload["players"] if p["account_id"] == account
-                )
-                scored = next(
-                    p
-                    for p in payload["scoring"]["players"]
-                    if str(p["account_id"]) == account
-                )
-                if best is None or scored["score"] > best[0]:
-                    best = (scored["score"], row["match_id"], player["hero_id"])
-                awards.extend(
-                    a["name"]
-                    for a in earned_achievements(player, scored, payload["duration_s"])
-                )
-                awards.extend(
-                    a["name"]
-                    for a in relative_achievements(payload, roster).get(account, [])
-                )
-            if best:
-                blocks.append(
-                    f"🌟 今日最佳 {hero_name(best[2])} {best[0]:.1f}分 | {best[1]}"
-                )
-            if awards:
-                blocks.append("🎖 " + " | ".join(list(dict.fromkeys(awards))[:2]))
         lines = [f"📅 DeadBot 日报 · {date.isoformat()}"]
         if not matches:
             lines.append("当天暂无本地标准或排位比赛。新比赛未收录时先 /同步。")
@@ -551,5 +457,6 @@ class PersonalInsights:
             lines.extend(blocks)
             if missing:
                 lines.append("\n部分比赛待补详情，使用 /补全 后可补上评分和成就。")
+        lines.append("\n日报仅汇总基础数据；评分请使用 /战报 查询 StatLocker。")
         lines.append("\n按中国时间的比赛结束日期统计。")
         return "\n".join(lines)

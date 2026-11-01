@@ -30,6 +30,9 @@ def registration_probe():
     # Protect against accidental access to any real database during framework
     # import. AstrBot may initialize its own empty DB under ASTRBOT_ROOT.
     sandbox = Path(os.environ["ASTRBOT_ROOT"]).resolve()
+    # Windows initializes asyncio's wake-up socket pair via loopback. Create
+    # it before installing the guard; all application network access stays denied.
+    loop = asyncio.new_event_loop()
 
     def guard_database(event, args):
         if event == "sqlite3.connect" and str(args[0]) != ":memory:":
@@ -50,7 +53,7 @@ def registration_probe():
     sys.modules[package.__name__] = package
     modules = {name: importlib.import_module(package.__name__ + "." + name)
                for name in ("deadlock", "commands", "report", "achievements")}
-    tree = ast.parse((ROOT / "main.py").read_text())
+    tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "DeadBot")
     # Retain every actual handler and decorator. Only exclude initialization so
     # registration cannot construct History/Library or open live SQLite files.
@@ -64,6 +67,11 @@ def registration_probe():
         "asyncio": asyncio, "json": json,
         "math": math, "sqlite3": sqlite3, "time": time,
         "parse_roster": modules["report"].parse_roster,
+        "parse_account": importlib.import_module(package.__name__ + ".accounts").parse_account,
+        "StatLockerError": importlib.import_module(package.__name__ + ".statlocker_service").StatLockerError,
+        "render_statlocker": importlib.import_module(package.__name__ + ".statlocker_service").render,
+        "identity": importlib.import_module(package.__name__ + ".accounts").identity,
+        "report_slot": importlib.import_module(package.__name__ + ".latest").report_slot,
         "make_report": modules["deadlock"].make_report,
         "normalize": modules["deadlock"].normalize,
         "parse_match_id": importlib.import_module(package.__name__ + ".input").parse_match_id,
@@ -120,17 +128,23 @@ def registration_probe():
         plugin.lock = asyncio.Lock()
         plugin.next_request = 0
         plugin.history = Mock()
+        from test_statlocker_service import fixture
+        website_data = fixture("123456")
+        website_data["players"][0]["account_id"] = "1001"
+        website_data["players"][0]["name"] = "测试玩家"
+        plugin.statlocker = Mock(get=AsyncMock(return_value=(website_data, False)))
         plugin.library = Mock()
+        plugin.latest_history = Mock(refresh=AsyncMock(return_value="已更新"))
         plugin.library.latest_match.return_value = "123456"
         plugin._resolve_account = AsyncMock(return_value="1001")
         private_signature = inspect.signature(plugin._report)
         original_private_report = plugin._report
 
-        async def tracked_report(event, match_id="", refresh="", *, achievements_only=False):
+        async def tracked_report(event, match_id="", refresh="", *, achievements_only=False, focus_account=None):
             private_calls.append({"match_id": match_id, "refresh": refresh,
-                                  "achievements_only": achievements_only})
+                                  "achievements_only": achievements_only, "focus_account": focus_account})
             async for response in original_private_report(event, match_id, refresh,
-                                                          achievements_only=achievements_only):
+                                                          achievements_only=achievements_only, focus_account=focus_account):
                 yield response
 
         plugin._report = tracked_report
@@ -145,19 +159,9 @@ def registration_probe():
             bad_refresh = await dispatch("战报 123456 invalid-refresh")
             extra_canonical = await dispatch("战报 123456 刷新 true")
             extra_alias = await dispatch("评分详情 123456 刷新 true")
-        session = Mock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock(return_value=False)
-        response = Mock(status=200)
-        response.__aenter__ = AsyncMock(return_value=response)
-        response.__aexit__ = AsyncMock(return_value=False)
-        response.json = AsyncMock(return_value=raw)
-        session.get.return_value = response
-        with patch.object(aiohttp, "ClientSession", return_value=session):
+        with patch.object(aiohttp, "ClientSession", side_effect=AssertionError("Unexpected API fallback")):
             refreshed = await dispatch("战报 123456 刷新")
-            plugin.next_request = 0  # Independent refresh scenario, no real wait.
             alias_refreshed = await dispatch("评分详情 123456 刷新")
-            plugin.next_request = 0
             achievement_refreshed = await dispatch("成就 123456 刷新")
         return {"canonical": canonical, "alias": alias, "latest": latest,
                 "achievements": achievements, "linked": linked,
@@ -167,17 +171,19 @@ def registration_probe():
                 "extra_canonical": extra_canonical, "extra_alias": extra_alias,
                 "private_mode_kind": private_signature.parameters["achievements_only"].kind.name,
                 "private_registered": any(md.handler_name == "_report" for md in handlers),
-                "refresh_request_count": session.get.call_count,
-                "refresh_request": {"url": session.get.call_args.args[0],
-                                    "kwargs": session.get.call_args.kwargs},
-                "expected_achievements": modules["commands"].text_pages(
-                    modules["achievements"].make_achievement_report(payload, {"1001": "测试玩家"}), "成就"),
+                "refresh_request_count": sum(call.kwargs.get("refresh") is True for call in plugin.statlocker.get.await_args_list),
+                "refresh_request": {"match_id": plugin.statlocker.get.await_args.args[0], "account": plugin.statlocker.get.await_args.args[1]},
+                "expected_achievements": ["自研成就评定已暂停；请使用 /战报 比赛ID 查看 StatLocker 评分和贡献明细。"],
                 "latest_resolved": plugin._resolve_account.await_count,
                 "registered": registered,
                 "roster_hooks": sum(md.handler_name == "current_roster_context"
                                     and md.event_type == EventType.OnLLMRequestEvent for md in handlers)}
 
-    print("DEADBOT_PROBE=" + json.dumps(asyncio.run(exercise()), ensure_ascii=False))
+    try:
+        print("DEADBOT_PROBE=" + json.dumps(loop.run_until_complete(exercise()), ensure_ascii=False))
+    finally:
+        loop.run_until_complete(loop.shutdown_default_executor())
+        loop.close()
 
 
 @unittest.skipUnless(importlib.util.find_spec("astrbot"), "需要已有 AstrBot 环境验证真实命令注册")
@@ -186,9 +192,11 @@ class CommandRegistrationTests(unittest.TestCase):
     def setUpClass(cls):
         with tempfile.TemporaryDirectory(prefix="deadbot-command-tests-") as directory:
             env = os.environ.copy()
-            env.update(ASTRBOT_ROOT=directory, PYTHONDONTWRITEBYTECODE="1")
+            env.update(ASTRBOT_ROOT=directory, PYTHONDONTWRITEBYTECODE="1",
+                       PYTHONIOENCODING="utf-8")
             result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--probe"],
-                                    cwd=directory, env=env, text=True, capture_output=True, timeout=60)
+                                    cwd=directory, env=env, text=True, encoding="utf-8",
+                                    capture_output=True, timeout=60)
             if result.returncode:
                 raise AssertionError("Isolated AstrBot command test failed:\n" + result.stdout + result.stderr)
             line = next(line for line in result.stdout.splitlines() if line.startswith("DEADBOT_PROBE="))
@@ -205,7 +213,7 @@ class CommandRegistrationTests(unittest.TestCase):
 
     def test_alias_and_canonical_use_identical_flow_and_output(self):
         self.assertEqual(self.probe["canonical"], self.probe["alias"])
-        self.assertIn("DeadBot 战报", "\n".join(self.probe["canonical"]["output"]))
+        self.assertIn("StatLocker 战报", "\n".join(self.probe["canonical"]["output"]))
 
     def test_refresh_is_parsed_and_keeps_existing_request_options(self):
         for name in ("refreshed", "alias_refreshed"):
@@ -214,8 +222,8 @@ class CommandRegistrationTests(unittest.TestCase):
                 self.assertEqual(refreshed["handler"], "report")
                 self.assertEqual(refreshed["params"], {"match_id": "123456", "refresh": "刷新"})
                 self.assertEqual(refreshed["output"][-1], self.probe["canonical"]["output"][-1])
-        self.assertEqual(self.probe["refresh_request"], {"url": "https://api.deadlock-api.com/v1/matches/123456/metadata", "kwargs": {"params": {"disable_steam": "true"}, "allow_redirects": False}})
-        self.assertEqual(self.probe["refresh_request_count"], 3)
+        self.assertEqual(self.probe["refresh_request"], {"match_id": "123456", "account": "1001"})
+        self.assertEqual(self.probe["refresh_request_count"], 2)
 
     def test_requested_public_parameter_matrix(self):
         # Eight requested command forms, parsed by the actual CommandFilter.
@@ -233,7 +241,8 @@ class CommandRegistrationTests(unittest.TestCase):
                     self.assertEqual(result["private_calls"], [])
                 else:
                     self.assertEqual(result["private_calls"], [{"match_id": "123456", "refresh": refresh,
-                                                               "achievements_only": handler == "award_details"}])
+                                                               "achievements_only": handler == "award_details",
+                                                               "focus_account": None}])
 
     def test_surplus_parameters_are_rejected_before_query_or_rendering(self):
         # AstrBot discards surplus tokens; the public wrapper must reject the
@@ -258,9 +267,9 @@ class CommandRegistrationTests(unittest.TestCase):
 
     def test_latest_still_resolves_account_and_uses_report(self):
         self.assertEqual(self.probe["latest"]["handler"], "latest")
-        self.assertEqual(self.probe["latest_resolved"], 1)
-        self.assertEqual(self.probe["latest"]["output"], self.probe["canonical"]["output"])
-        self.assertEqual(self.probe["latest"]["private_calls"], [{"match_id": "123456", "refresh": "", "achievements_only": False}])
+        self.assertGreaterEqual(self.probe["latest_resolved"], 1)
+        self.assertIn("StatLocker 战报", "\n".join(self.probe["latest"]["output"]))
+        self.assertEqual(self.probe["latest"]["private_calls"], [{"match_id": "123456", "refresh": "", "achievements_only": False, "focus_account": "1001"}])
 
     def test_achievements_still_use_achievement_only_output(self):
         expected = self.probe["expected_achievements"]
@@ -276,10 +285,10 @@ class CommandRegistrationTests(unittest.TestCase):
 
 class CommandSourceTests(unittest.TestCase):
     def test_dead_detailed_parameter_and_duplicate_handler_are_removed(self):
-        tree = ast.parse((ROOT / "main.py").read_text())
+        tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "DeadBot")
         self.assertFalse(any(getattr(n, "name", "") == "score_details" for n in cls.body))
-        renderer = ast.parse((ROOT / "scored_report.py").read_text())
+        renderer = ast.parse((ROOT / "scored_report.py").read_text(encoding="utf-8"))
         render = next(n for n in renderer.body if isinstance(n, ast.FunctionDef) and n.name == "make_scored_report")
         self.assertNotIn("detailed", [arg.arg for arg in render.args.args])
 

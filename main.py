@@ -13,6 +13,8 @@ from astrbot.core.agent.message import TextPart
 
 from .achievements import achievement_rules, make_achievement_report
 from .analysis import PlayerAnalysis
+from .accounts import parse_account, identity
+from .latest import LatestHistory, report_slot
 from .commands import HELP, HELP_DETAILED, text_pages
 from .deadlock import make_report, normalize
 from .details import DetailBackfill
@@ -22,6 +24,7 @@ from .insights import PersonalInsights
 from .library import Library
 from .report import parse_roster
 from .scoring import VERSION
+from .statlocker_service import StatLockerService, StatLockerError, render as render_statlocker
 
 
 class DeadBot(Star):
@@ -35,11 +38,16 @@ class DeadBot(Star):
             Path("data") / "plugin_data" / "astrbot_plugin_deadbot" / "history.sqlite3"
         )
         self.library = Library(self.history.path)
+        self.latest_history = LatestHistory(self.library)
         self.analysis = PlayerAnalysis(self.history.path)
         self.insights = PersonalInsights(self.history.path)
         self.backfill = DetailBackfill(self.history, self.library, self.analysis)
         self.sync_lock = asyncio.Lock()
         self.sync_retry_at = 0.0
+        self.statlocker = StatLockerService(
+            self.history.path.parent / "statlocker_cache",
+            python=self.config.get("statlocker_python") or None,
+        )
 
     @filter.on_llm_request()
     async def current_roster_context(self, event: AstrMessageEvent, request):
@@ -56,8 +64,8 @@ class DeadBot(Star):
             )
         except ValueError:
             text = "\n[DeadBot 当前配置]\n当前名单配置无效，不能引用人格或旧对话中的名单。请引导用户使用 /群友名单 检查配置。"
-        text += "\n现有指令：/群友名单、/同步（同义：同步历史、刷新） 群友称呼或全部、/绑定 群友称呼、/最新（同义：最新数据、最新比赛）、/分析（同义：打法分析） [群友称呼] [标准或排位或全部]、/英雄统计 群友称呼、/群友画像 群友称呼、/战报（旧别名：评分详情） 比赛ID、/评分规则。最新和分析不指定群友时查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报使用本地 DeadBot 贡献评分，不是 StatLocker 分数；名单内最低分不代表输局责任。反补、招架、命中率、爆头率不计 MVP。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
-        text += "\n/帮助（同义：指令、deadbot帮助、deadbothelp）查看完整指令。/成就详情（同义：成就） 比赛ID 查询本局全部个人成就；/成就规则 [类别或名称] 查看规则。成就独立于MVP，仅按已核实字段触发，不编造连杀、控制或打法类别评级。"
+        text += "\n现有指令：/群友名单、/同步（同义：同步历史、刷新） 群友称呼或全部、/绑定 AccountID或Steam数字链接、/解绑、/最新（同义：最新数据、最新比赛）、/分析（同义：打法分析） [群友称呼] [标准或排位或全部]、/英雄统计 群友称呼、/群友画像 群友称呼、/战报（旧别名：评分详情） 比赛ID、/评分规则。名单是可选功能，绑定不要求在名单内；最新会按需刷新个人历史，分析使用本地记录。最新和分析不指定群友时查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报直接读取StatLocker评分、评级和排名；抓取失败不得编造或改用本地评分，最低分不代表输局责任。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
+        text += "\n/帮助（同义：指令、deadbot帮助、deadbothelp）查看完整指令。自研成就评定暂停，/成就详情（同义：成就）仅提示改用战报；/成就规则 [类别或名称] 查看规则。成就独立于MVP，仅按已核实字段触发，不编造连杀、控制或打法类别评级。"
         text += "\n/日报 [群友称呼或全部] [今天、昨天或YYYY-MM-DD] 查看本地每日总结，默认全部；/建议（同义：打法建议） [群友称呼] [标准或排位或全部] 默认自己；/补全 [群友称呼或全部] 补抓近期缺失详情。同步历史后自动补详情，每轮最多25场，已有详情复用。个人六维为输出、发育、承伤、辅助、前期、推进，只与自己的同英雄同模式历史比较，不是StatLocker类别评分，不改变MVP。发育和承伤高不等于打得好，不以老玩家分数要求新手；建议只指出复盘方向，不臆测走位、出装或玩家意图。"
         request.extra_user_content_parts.append(TextPart(text=text).mark_as_temp())
 
@@ -192,24 +200,17 @@ class DeadBot(Star):
         """
         if name:
             selected = [a for a, n in roster.items() if name in (a, n)]
-            if len(selected) == 1:
-                return selected[0]
-            raise ValueError(
-                "请填写唯一群友称呼或 Account ID：" + "、".join(roster.values())
-            )
-        platform = str(getattr(event, "get_platform_id", lambda: "")() or "")
-        sender = str(getattr(event, "get_sender_id", lambda: "")() or "")
-        account = (
-            await asyncio.to_thread(self.history.sender_account, platform, sender)
-            if platform and sender
-            else None
-        )
-        if account in roster:
-            return account
-        raise ValueError(
-            "尚未绑定游戏账号，请先发送 /绑定 群友称呼。\n可选："
-            + "、".join(roster.values())
-        )
+            if len(selected) > 1:
+                raise ValueError("称呼重复，请改用 Account ID。")
+            account = selected[0] if selected else parse_account(name)
+        else:
+            platform, sender = identity(event)
+            account = await asyncio.to_thread(self.history.sender_account, platform, sender)
+            if not account:
+                raise ValueError("尚未绑定，请发送 /绑定 AccountID 或 /绑定 Steam数字个人主页链接。")
+            account = parse_account(account)
+        roster.setdefault(account, f"玩家 {account}")
+        return account
 
     async def _fill_details(self, event, roster):
         """Share the war-report request gate; local advice/daily never trigger this."""
@@ -354,43 +355,52 @@ class DeadBot(Star):
             roster = parse_roster(self.config.get("roster", []))
             if not name:
                 raise ValueError(
-                    "用法：/绑定 群友称呼\n可选：" + "、".join(roster.values())
+                    "用法：/绑定 AccountID、SteamID64 或 Steam数字个人主页链接；也支持已有群友称呼。"
                 )
             account = await self._resolve_account(event, name, roster)
             platform = str(getattr(event, "get_platform_id", lambda: "")() or "")
             sender = str(getattr(event, "get_sender_id", lambda: "")() or "")
             await asyncio.to_thread(self.history.bind_sender, platform, sender, account)
-            text = f"已绑定：{roster[account]}。现在可直接使用 /最新 和 /分析。"
+            text = f"已绑定：{roster[account]}（Account ID {account}）。可直接使用 /最新。\n绑定仅保存查询偏好，不验证账号归属；群聊和私聊若平台提供不同身份，需要分别绑定。"
         except ValueError as exc:
             text = str(exc)
         except (sqlite3.Error, OSError):
             text = "绑定未保存，本地数据库暂不可用，请稍后重试。"
         yield event.plain_result(text)
 
+    @filter.command("解绑")
+    async def unbind_self(self, event: AstrMessageEvent):
+        """Remove only this sender's binding; never delete shared match data."""
+        try:
+            platform, sender = identity(event)
+            await asyncio.to_thread(self.history.unbind_sender, platform, sender)
+            text = "已解除当前聊天身份的绑定，历史比赛数据保留。"
+        except ValueError as exc:
+            text = str(exc)
+        except (sqlite3.Error, OSError):
+            text = "解绑失败，请稍后重试。"
+        yield event.plain_result(text)
+
     @filter.command("最新", alias={"最新数据", "最新比赛"})
     async def latest(self, event: AstrMessageEvent, name: str = ""):
-        """Send the sender's latest locally known match report.
-
-        Args:
-            event: Incoming platform event.
-            name: Optional explicit roster member.
-        """
+        """Refresh only the requested player's history, then render their match."""
         try:
             roster = parse_roster(self.config.get("roster", []))
             account = await self._resolve_account(event, name, roster)
+            yield event.plain_result(f"正在查询 {roster[account]}（{account}）的最近比赛。")
+            status = await self.latest_history.refresh(account)
             match_id = await asyncio.to_thread(self.library.latest_match, account)
             if not match_id:
-                yield event.plain_result(
-                    f"{roster[account]} 暂无本地比赛，请先 /同步 {roster[account]}。"
-                )
+                yield event.plain_result(status + "\n暂无已收录的本地比赛；请在比赛结束后稍后重试。")
                 return
+            yield event.plain_result(status + f"\n查询对象：{roster[account]}（{account}） | 比赛 {match_id}")
         except ValueError as exc:
             yield event.plain_result(str(exc))
             return
         except (sqlite3.Error, OSError):
             yield event.plain_result("本地历史库暂不可用，请稍后重试。")
             return
-        async for response in self._report(event, match_id):
+        async for response in self._report(event, match_id, focus_account=account):
             yield response
 
     @filter.command("分析", alias={"打法分析"})
@@ -488,12 +498,10 @@ class DeadBot(Star):
     @filter.command("评分规则")
     async def scoring_rules(self, event: AstrMessageEvent):
         yield event.plain_result(
-            "DeadBot 贡献评分说明\n"
-            "结合前期、输出、推进、承伤和辅助等比赛数据，参考死亡及经济效率，观察本场相对表现。\n"
-            "这是 DeadBot 自定义评分，不是 StatLocker 分数，也不代表玩家的绝对实力。\n"
-            "仅在符合条件且数据完整的标准、排位比赛中评分；数据不足、队伍不完整或有人弃赛时不评选。\n"
-            "成就独立于评分，名单内最低分不代表输局责任。\n"
-            "/战报 比赛ID 查看战报（兼容旧别名：/评分详情）。"
+            "评分、评级和全场排名直接读取 StatLocker 网页。\n"
+            "贡献明细是原站贡献点，不是百分制评分，也不代表输局责任。\n"
+            "自研评分已暂停；采集失败明确提示，不自动切换本地评分。\n"
+            "默认缓存24小时，/战报 比赛ID 刷新 可重新采集。"
         )
 
     @filter.command("战报", alias={"评分详情"})
@@ -515,132 +523,37 @@ class DeadBot(Star):
             yield response
 
     async def _report(
-        self,
-        event: AstrMessageEvent,
-        match_id: str = "",
-        refresh: str = "",
-        *,
-        achievements_only=False,
+        self, event: AstrMessageEvent, match_id: str = "", refresh: str = "", *,
+        achievements_only=False, focus_account=None,
     ):
-        """共享查询流程；成就模式只能由内部调用通过关键字指定。"""
-        try:
-            match_id = parse_match_id(match_id)
-        except ValueError:
-            yield event.plain_result(
-                "用法：/战报 比赛ID\n也支持：/战报 StatLocker单局链接\n请把比赛ID换成实际编号。"
-            )
-            return
-        if refresh not in ("", "刷新"):
-            yield event.plain_result(
-                "用法：/战报 比赛ID；重新获取接口数据：/战报 比赛ID 刷新"
-            )
+        """Only StatLocker supplies scores; failures never use the local model."""
+        if achievements_only:
+            yield event.plain_result("自研成就评定已暂停；请使用 /战报 比赛ID 查看 StatLocker 评分和贡献明细。")
             return
         try:
+            mid = parse_match_id(match_id)
+            if refresh not in ("", "刷新"):
+                raise ValueError("用法：/战报 比赛ID [刷新]")
             roster = parse_roster(self.config.get("roster", []))
+            if focus_account is None:
+                # An explicitly supplied profile URL may select a player.
+                selected = match_id.split("/profile/")[1].split("/")[0] if "/profile/" in match_id else ""
+                focus_account = await self._resolve_account(event, selected, roster)
+            focus_account = parse_account(str(focus_account))
         except ValueError as exc:
             yield event.plain_result(str(exc))
             return
-        if self.lock.locked():
-            yield event.plain_result("已有战报正在查询，请等待完成后重试。")
+        except (sqlite3.Error, OSError):
+            yield event.plain_result("绑定信息暂不可用，请稍后重试。")
             return
-        async with self.lock:
-            now = time.monotonic()
-            cached = self.cache.get(match_id) if not refresh else None
-            if cached and cached[0] > now:
-                payload = cached[1]
-            else:
-                raw = None
-                cached_score = None
-                if not refresh:
-                    try:
-                        raw = await asyncio.to_thread(
-                            self.history.cached_detail, match_id
-                        )
-                        cached_score = await asyncio.to_thread(
-                            self.history.cached_score, match_id, VERSION
-                        )
-                        payload = (
-                            normalize(raw, match_id, cached_score)
-                            if raw is not None
-                            else None
-                        )
-                    except (sqlite3.Error, OSError, ValueError):
-                        raw = None
-                if raw is None and now < self.next_request:
-                    yield event.plain_result(
-                        f"查询冷却中，请 {math.ceil(self.next_request - now)} 秒后重试。"
-                    )
-                    return
-                if raw is None:
-                    self.next_request = now + 5
-                    yield event.plain_result(
-                        f"正在查询比赛 {match_id}，通常会在 25 秒内返回，请稍候。"
-                    )
-                    try:
-                        async with (
-                            aiohttp.ClientSession(
-                                timeout=aiohttp.ClientTimeout(total=25)
-                            ) as session,
-                            session.get(
-                                f"https://api.deadlock-api.com/v1/matches/{match_id}/metadata",
-                                params={"disable_steam": "true"},
-                                allow_redirects=False,
-                            ) as response,
-                        ):
-                            errors = {
-                                401: "公开接口拒绝访问，请稍后重试。",
-                                403: "公开接口访问受限，请稍后重试。",
-                                404: "比赛暂未收录或 ID 不正确，请稍后重试；当前仅查询已有数据，不触发 Steam 回源。",
-                                429: "Deadlock API 请求限流，请稍后重试。",
-                            }
-                            if response.status == 429:
-                                self.next_request = now + 60
-                            if response.status != 200:
-                                yield event.plain_result(
-                                    errors.get(
-                                        response.status,
-                                        f"Deadlock API 暂不可用（HTTP {response.status}），本次不生成评分。",
-                                    )
-                                )
-                                return
-                            raw = await response.json()
-                        payload = normalize(raw, match_id)
-                    except TimeoutError:
-                        yield event.plain_result(
-                            "查询超时（25 秒），Deadlock API 未及时响应，请稍后重试。"
-                        )
-                        return
-                    except (aiohttp.ContentTypeError, ValueError):
-                        yield event.plain_result(
-                            "Deadlock API 返回的内容不是有效比赛数据，本次不生成评分，请稍后重试。"
-                        )
-                        return
-                    except aiohttp.ClientError:
-                        yield event.plain_result(
-                            "无法连接 Deadlock API，请检查本机网络或稍后重试。本次未取得评分。"
-                        )
-                        return
-                    try:
-                        await asyncio.to_thread(
-                            self.history.cache_detail, match_id, raw
-                        )
-                    except (sqlite3.Error, OSError, ValueError):
-                        pass
-                self.cache = {k: v for k, v in self.cache.items() if v[0] > now}
-                if len(self.cache) >= 100:
-                    self.cache.pop(next(iter(self.cache)))
-                self.cache[match_id] = (now + 300, payload)
-        markdown = getattr(event, "get_platform_name", lambda: "")() == "webchat"
-        report = (
-            make_achievement_report(payload, roster)
-            if achievements_only
-            else make_report(payload, roster, markdown=markdown)
-        )
+        yield event.plain_result(f"正在查询 StatLocker 比赛 {mid}，优先使用缓存；未缓存时进入采集队列，每场最多约两分钟。")
         try:
-            await asyncio.to_thread(self.history.record, payload, roster)
-        except (sqlite3.Error, OSError, ValueError):
-            report += "\n本次未能保存历史记录，战报仍可查看。"
-        for page in text_pages(
-            report, "成就" if achievements_only else "战报", markdown
-        ):
+            data, cached = await self.statlocker.get(mid, focus_account, refresh=refresh == "刷新")
+            report = render_statlocker(data, focus_account, cached)
+        except StatLockerError as exc:
+            report = f"{exc}\n本次未取得 StatLocker 评分，不使用本地评分替代。"
+        for page in text_pages(report, "战报"):
             yield event.plain_result(page)
+
+    async def terminate(self):
+        await self.statlocker.close()

@@ -49,7 +49,7 @@ commands = load_module("commands")
 
 def load_request_handlers():
     """执行源文件中的两个实际处理器，隔离与数据库及网络无关的初始化。"""
-    tree = ast.parse((ROOT / "main.py").read_text())
+    tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "DeadBot")
     cls.bases = []
     cls.decorator_list = []
@@ -138,7 +138,7 @@ class ContextTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_scoring_explanation_has_no_detailed_formula(self):
         output = [part async for part in self.plugin.scoring_rules(self.event)]
-        self.assertIn("本场相对表现", output[0])
+        self.assertIn("直接读取 StatLocker", output[0])
         for formula in ("sqrt", "exp(", "135", "参照权重", "25×z"):
             self.assertNotIn(formula, output[0])
 

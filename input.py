@@ -8,7 +8,7 @@ def parse_match_id(value: str) -> str:
         url = urlsplit(value)
         if url.scheme != "https" or url.netloc.lower() != "statlocker.gg":
             raise ValueError("请填写数字比赛 ID 或 https://statlocker.gg 的单局链接。")
-        match = re.fullmatch(r"/profile/[0-9]+/matches/([0-9]{1,15})(?:/summary)?/?", url.path)
+        match = re.fullmatch(r"/profile/[0-9]+/matches/([0-9]{1,15})(?:/summary|/mvp/mvp-breakdown)?/?", url.path)
         if not match:
             raise ValueError("链接中没有有效比赛 ID，请复制 StatLocker 单局 summary 链接。")
         value = match.group(1)

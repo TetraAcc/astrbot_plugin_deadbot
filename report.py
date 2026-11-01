@@ -20,8 +20,6 @@ def parse_roster(entries):
         if account in roster:
             raise ValueError("名单中存在重复账号，请在插件配置中去重。")
         roster[account] = name.replace("\n", " ").replace("\r", " ")[:40]
-    if not roster:
-        raise ValueError("名单为空，请先在插件配置中添加群友。")
     return roster
 
 

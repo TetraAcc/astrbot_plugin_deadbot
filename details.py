@@ -44,7 +44,7 @@ class DetailBackfill:
             raw = self.history.cached_detail(mid)
             if raw:
                 try:
-                    payload = normalize(raw, mid)
+                    payload = normalize(raw, mid, compute_local_score=False)
                     if expected.issubset({p["account_id"] for p in payload["players"]}):
                         continue
                 except ValueError:
@@ -89,7 +89,7 @@ class DetailBackfill:
                     )
                     return response.status
                 raw = await response.json()
-            payload = normalize(raw, mid)
+            payload = normalize(raw, mid, compute_local_score=False)
             info = raw["match_info"]
             if info.get("game_mode") != 1 or info.get("match_mode") not in (1, 4):
                 raise ValueError("wrong mode")
