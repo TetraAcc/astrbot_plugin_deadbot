@@ -64,7 +64,54 @@ async def collect(page, url):
         if len(set(record["breakdown"])) != segment_count:
             raise ValueError("悬浮框重复，可能未更新；不接受该场数据")
         result.append(record)
-    return dict(source=url, match_id=url.split("/matches/")[1].split("/")[0],
+    farm = {}
+    farm_error = None
+    try:
+        farm = await collect_farm(page, url, result)
+    except Exception:
+        farm_error = "资源占用暂未获取"
+    return dict(farm_impact=farm, farm_error=farm_error, source=url, match_id=url.split("/matches/")[1].split("/")[0],
                 captured_at=datetime.now(timezone.utc).isoformat(),
                 method="visible DOM and hovered contribution tooltips", players=result)
 
+
+async def collect_farm(page, url, players):
+    farm_url = url.rsplit('/', 1)[0] + '/farm-impact'
+    await page.goto(farm_url, wait_until='domcontentloaded', timeout=20000)
+    await page.locator('.fiv-p-row').first.wait_for(state='visible', timeout=15000)
+    if page.url.split('?')[0].rstrip('/') != farm_url:
+        raise ValueError('资源页比赛地址不匹配')
+    result = {}
+    expected = {p['account_id']:p for p in players}
+    async def read_rows():
+        for row in await page.locator('.fiv-p-row').all():
+            href = await row.locator('.fiv-p-link').get_attribute('href')
+            acc = href.rsplit('/', 1)[-1]
+            if acc not in expected:
+                raise ValueError('资源页账号不匹配')
+            tag = (await row.locator('.fiv-p-farm-tag').inner_text()).upper()
+            label = next((v for v in ['HIGHEST FARM','HIGH FARM','MEDIUM FARM','LOW FARM'] if tag.startswith(v)), None)
+            grades = await row.locator('.tier-badge').all_text_contents()
+            scores = await row.locator('.fiv-p-lift-score').all_text_contents()
+            if not label or len(grades)!=2 or len(scores)!=2:
+                raise ValueError('资源页结构变化')
+            if float(scores[1]) != expected[acc]['score'] or grades[1].strip()!=expected[acc]['grade']:
+                raise ValueError('资源页评分不一致')
+            bonus_el = row.locator('.fiv-p-lift-bonus')
+            bonus = (await bonus_el.inner_text()).strip() if await bonus_el.count() else '0'
+            if bonus in ('—','–'): bonus='0'
+            if not re.fullmatch(r'\+?\d+(?:\.\d+)?', bonus):
+                raise ValueError('奖励值不明确')
+            result[acc] = dict(label=label, farm=(await row.locator('.fiv-p-farm-amt').inner_text()).strip(),
+                before_grade=grades[0].strip(), before_score=float(scores[0]), bonus=bonus,
+                score=float(scores[1]), grade=grades[1].strip())
+    await read_rows()
+    if len(result)==6:
+        for team in ['Hidden King','Archmother']:
+            button=page.get_by_role('button',name=team,exact=True)
+            if await button.count():
+                await button.click()
+                await read_rows()
+    if set(result)!=set(expected):
+        raise ValueError('资源页玩家不完整')
+    return result

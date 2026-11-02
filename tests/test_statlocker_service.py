@@ -99,9 +99,9 @@ class StatLockerTests(unittest.IsolatedAsyncioTestCase):
         data = fixture()
         text = module.render(data, "1", True)
         self.assertIn("71.3 / B+", text)
-        self.assertIn("Player1｜", text)
-        self.assertNotIn("Player2｜", text)
-        self.assertIn("缓存", text)
+        self.assertIn("Player1 ·", text)
+        self.assertNotIn("Player2 ·", text)
+        self.assertIn("贡献占比", text)
         self.assertIn("没有查询账号", module.render(data, "99", False))
 
     def test_validation_rejects_wrong_match_duplicates_and_mixed_tooltips(self):
@@ -113,3 +113,36 @@ class StatLockerTests(unittest.IsolatedAsyncioTestCase):
             if change == "nan": data["players"][0]["score"] = float("nan")
             with self.subTest(change=change), self.assertRaises(ValueError):
                 module.validate(data, "123")
+
+
+class DisplaySafetyTests(unittest.TestCase):
+    def test_missing_account_never_substitutes_friend(self):
+        self.assertIn('没有查询账号', module.render(fixture(), '99', False, {'match_info': {'match_id':123, 'players':[]}}, {'1':'friend'}))
+
+    def test_wrong_match_drops_api(self):
+        text=module.render(fixture(), '1', False, {'match_info':{'match_id':999, 'players':[{'account_id':1,'kills':88}]}})
+        self.assertIn('详情暂不可用',text)
+        self.assertNotIn('88/',text)
+
+    def test_unknown_not_zero_or_loss(self):
+        text=module.render(fixture(), '1', False, {'match_info':{'match_id':123,'players':[{'account_id':1,'team':0}]}})
+        self.assertIn('结果：未知',text)
+        self.assertIn('未知/未知/未知',text)
+        self.assertNotIn('结果：失败',text)
+
+    def test_equal_shares_and_farm(self):
+        data=fixture()
+        data['farm_impact']={'1':dict(label='LOW FARM',farm='38k',bonus='+7.8',before_grade='B-')}
+        text=module.render(data,'1',False)
+        self.assertIn('输出8.3%',text)
+        self.assertIn('评分奖励 +7.8 · B- → B+',text)
+        self.assertNotIn('points',text)
+
+    def test_zero_category_and_invalid_farm(self):
+        data=fixture()
+        for p in data['players']:
+            p['breakdown']=[b.replace('CATEGORY TOTAL: 1.0', 'CATEGORY TOTAL: 0.0') for b in p['breakdown']]
+        self.assertIn('输出无贡献',module.render(data,'1',False))
+        data=fixture()
+        data['farm_impact']={'1':{}}
+        with self.assertRaises(ValueError): module.validate(data,'123')

@@ -25,7 +25,7 @@ def load_handlers():
     cls.bases = []
     cls.decorator_list = []
     cls.body = [n for n in cls.body if isinstance(n, ast.AsyncFunctionDef)
-                and n.name in {"_resolve_account", "bind_account", "unbind_self", "latest", "_report"}]
+                and n.name in {"_resolve_account", "bind_account", "unbind_self", "latest", "_report", "report", "recent", "playstyle_analysis", "personal_advice"}]
     for node in cls.body:
         node.decorator_list = []
     namespace = dict(asyncio=asyncio, sqlite3=sqlite3, parse_account=accounts.parse_account,
@@ -215,3 +215,34 @@ class MagicContext:
 
     async def __aexit__(self, *args):
         return False
+
+
+class SimplifiedCommandTests(PersonalTests):
+    async def test_empty_report_routes_latest(self):
+        event=self.event()
+        event.get_message_str=lambda:'/战报'
+        await self.collect(self.plugin.bind_account,event,'1001')
+        self.plugin.library.import_history('1001',[dict(account_id=1001,match_id=123,start_time=100)])
+        await self.collect(self.plugin.report,event)
+        self.assertEqual(self.calls,[('123',{'focus_account':'1001'})])
+
+    async def test_recent_limits_five_and_isolates_account(self):
+        await self.collect(self.plugin.bind_account,self.event(),'1001')
+        self.plugin.library.import_history('1001',[dict(account_id=1001,match_id=i,start_time=i) for i in range(100,107)])
+        self.plugin.library.import_history('1002',[dict(account_id=1002,match_id=999,start_time=999)])
+        result='\n'.join(await self.collect(self.plugin.recent,self.event()))
+        self.assertIn('最近5场',result)
+        self.assertIn('比赛 106',result)
+        self.assertNotIn('比赛 101',result)
+        self.assertNotIn('999',result)
+        self.assertEqual(self.calls,[])
+
+    async def test_analysis_and_advice_share_output(self):
+        await self.collect(self.plugin.bind_account,self.event(),'1001')
+        self.plugin.analysis=SimpleNamespace(report=Mock(return_value='近期表现'))
+        self.plugin.insights=SimpleNamespace(advice=Mock(return_value='练习方向'))
+        a=await self.collect(self.plugin.playstyle_analysis,self.event())
+        b=await self.collect(self.plugin.personal_advice,self.event())
+        self.assertEqual(a,b)
+        self.assertIn('近期表现',''.join(a))
+        self.assertIn('练习方向',''.join(a))

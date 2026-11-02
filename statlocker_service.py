@@ -58,6 +58,24 @@ def validate(data, match_id):
             raise ValueError("悬浮明细来自不同玩家")
         if abs(category_sum - totals[0]) > .6:
             raise ValueError("贡献分项与总分不一致")
+    farm = data.get('farm_impact', {})
+    if not isinstance(farm, dict):
+        raise ValueError('资源占用格式错误')
+    if farm:
+        if set(farm) != accounts:
+            raise ValueError('资源占用账号不完整')
+        for player in rows:
+            item = farm[player['account_id']]
+            if not isinstance(item, dict) or item.get('label') not in {'LOW FARM','MEDIUM FARM','HIGH FARM','HIGHEST FARM'}:
+                raise ValueError('资源标签无效')
+            if item.get('score') != player['score'] or item.get('grade') != player['grade']:
+                raise ValueError('资源评分不匹配')
+            if not re.fullmatch(r'\+?\d+(?:\.\d+)?', str(item.get('bonus',''))):
+                raise ValueError('资源奖励无效')
+            if not re.fullmatch(r'\d+(?:\.\d+)?[kKmM]?', str(item.get('farm',''))):
+                raise ValueError('资源数量无效')
+            if not isinstance(item.get('before_grade'),str):
+                raise ValueError('资源评级缺失')
     datetime.fromisoformat(data["captured_at"])
     return data
 
@@ -77,7 +95,7 @@ class StatLockerService:
     def _read(self, mid):
         try:
             envelope = json.loads((self.directory / f"{mid}.json").read_text(encoding="utf-8"))
-            if envelope.get("schema") != 1 or not 0 <= time.time() - envelope["stored_at"] < self.ttl:
+            if envelope.get("schema") != 2 or not 0 <= time.time() - envelope["stored_at"] < self.ttl:
                 return None
             return validate(envelope["data"], mid)
         except (OSError, ValueError, KeyError, TypeError):
@@ -131,7 +149,7 @@ class StatLockerService:
         self.directory.mkdir(parents=True, exist_ok=True)
         target = self.directory / f"{mid}.json"
         temporary = target.with_suffix(".tmp")
-        temporary.write_text(json.dumps(dict(schema=1, stored_at=time.time(), data=data),
+        temporary.write_text(json.dumps(dict(schema=2, stored_at=time.time(), data=data),
                                         ensure_ascii=False), encoding="utf-8")
         temporary.replace(target)
 
@@ -181,169 +199,94 @@ def display_num(value):
     return "未知"
 
 
-def format_breakdown(parts):
-    if not parts:
-        return ""
+def contribution_shares(data, player):
+    categories = ["DAMAGE DEALER", "PUSHER", "SUPPORT", "EARLY IMPACT", "TANK"]
+    def points(p, cat):
+        for part in p.get("breakdown", []):
+            if part.splitlines()[0].strip().upper() == cat:
+                m = re.search(r"CATEGORY TOTAL:\s*(-?[\d,.]+)", part, re.I)
+                return float(m[1].replace(",", "")) if m else None
+        return None
     items = []
-    for part in parts:
-        title = part.splitlines()[0].strip().upper()
-        total = re.search(r"CATEGORY TOTAL:\s*(-?[\d,.]+)\s*PTS", part, re.I)
-        if total:
-            name = CATEGORY_NAMES.get(title, title)
-            val = float(total[1].replace(",", ""))
-            sign = "+" if val > 0 else ""
-            items.append(f"{name} {sign}{val:.0f}")
-    return " | ".join(items)
+    for cat in categories:
+        vals = [points(p, cat) for p in data["players"]]
+        value = points(player, cat)
+        if len(vals) != 12 or any(v is None or v < 0 for v in vals):
+            text = "未知"
+        elif sum(vals) == 0:
+            text = "无贡献"
+        else:
+            text = f"{value / sum(vals):.1%}"
+        items.append(CATEGORY_NAMES[cat] + text)
+    return [" · ".join(items[:3]), " · ".join(items[3:])]
+
+
+def farm_amount(text):
+    if text.lower().endswith('k'):
+        return f"{float(text[:-1])/10:g}万"
+    if text.lower().endswith('m'):
+        return f"{float(text[:-1])*100:g}万"
+    return text
 
 
 def render(data, account, cached, raw_match=None, roster=None):
-    if not raw_match:
-        player = next((p for p in data["players"] if p["account_id"] == str(account)), None)
-        if player is None:
-            return "本场没有查询账号，请核对绑定或比赛编号；不会替换为其他玩家的评分。"
-        name = str(player["name"]).replace("\n", " ")[:60]
-        rank_m = re.match(r"^\s*(\d+)", str(player.get("rank", "")))
-        rank = rank_m[1] if rank_m else "?"
-        lines = [f"StatLocker 战报 · {data['match_id']}",
-                 f"{name}｜{player['hero']}｜账号 {account}",
-                 f"评分 {player['score']:.1f} / {player['grade']}｜全场第 {rank} / 12",
-                 "贡献明细（原站贡献点，不是百分制评分）："]
-        for part in player["breakdown"]:
-            title = part.splitlines()[0].strip().upper()
-            total = re.search(r"CATEGORY TOTAL:\s*(-?[\d,.]+)\s*PTS", part, re.I)
-            lines.append(f"{CATEGORY_NAMES.get(title, title)}：{total[1]}")
-        lines += [f"数据来源：StatLocker 网页｜{'缓存' if cached else '本次采集'}",
-                  f"采集时间：{data['captured_at']}（UTC）", "评分、评级和排名直接取自原站，未使用本地评分。"]
-        return "\n".join(lines)
-
     roster = roster or {}
+    sl = {str(p["account_id"]): p for p in data["players"]}
+    account = str(account)
+    if account not in sl:
+        return "本场没有查询账号，请核对绑定或比赛编号；不会替换为其他玩家的评分。"
     info = raw_match.get("match_info", {}) if isinstance(raw_match, dict) else {}
-    mid = str(info.get("match_id", data.get("match_id", "?")))
-    duration = info.get("duration_s", 0)
-    winning_team = info.get("winning_team")
-
-    sl_players = {str(p["account_id"]): p for p in data.get("players", [])}
-    api_players = {str(p["account_id"]): p for p in info.get("players", []) if isinstance(p, dict)}
-    custom_stats = {str(cs.get("account_id")): cs for cs in info.get("custom_user_stats", []) if isinstance(cs, dict)}
-
-    friends = [acc for acc in api_players if acc in roster]
-    if account and str(account) in api_players:
-        focus_str = str(account)
-        if focus_str not in friends:
-            friends.append(focus_str)
-        target_accounts = [focus_str] + [acc for acc in friends if acc != focus_str]
-    elif friends:
-        target_accounts = friends
-    elif account and str(account) in sl_players:
-        target_accounts = [str(account)]
-    else:
-        target_accounts = list(sl_players.keys())[:1]
-
-    if not target_accounts:
-        return "本局没有查询账号，请核对绑定或比赛编号。"
-
-    SEPARATOR = "➖➖➖➖➖➖➖➖➖➖➖"
-    lines = [f"🏆 StatLocker 战报 · {mid}"]
-
-    summary = []
-    if duration:
-        summary.append(f"⏱️ 时长：{duration // 60:02d}:{duration % 60:02d}")
-
-    roster_matches = [acc for acc in target_accounts if acc in roster]
-    if len(roster_matches) > 1:
-        summary.append(f"👥 群友：{len(roster_matches)}/{len(roster)}")
-    else:
-        summary.append("个人复盘")
-
-    outcomes = {api_players[acc].get("team") == winning_team for acc in target_accounts if acc in api_players}
-    if len(outcomes) == 1:
-        won = next(iter(outcomes))
-        summary.append(f"🏁 结果：{'胜利' if won else '失败'}")
-    lines.append(" | ".join(summary))
-
-    if len(outcomes) > 1:
-        groups = {}
-        for acc in target_accounts:
-            t = api_players[acc].get("team")
-            groups.setdefault(t, []).append(acc)
-        for t_id, group in groups.items():
-            res = "胜利" if t_id == winning_team else "失败"
-            names = "、".join(roster.get(acc, sl_players.get(acc, {}).get("name", acc)) for acc in group)
-            lines.append(f"🏁 队伍结果：{names} ({res})")
-
-    team_kills = {0: 0, 1: 0}
-    for p in api_players.values():
-        t = p.get("team")
-        if t in team_kills:
-            team_kills[t] += p.get("kills", 0) or 0
-
-    for acc in target_accounts:
-        p_api = api_players.get(acc, {})
-        p_sl = sl_players.get(acc, {})
-
-        display_name = roster.get(acc, p_sl.get("name", f"玩家 {acc}"))
-        display_name = str(display_name).replace("\n", " ")[:40]
-
-        hero_zh = hero_name(p_api.get("hero_id")) if p_api.get("hero_id") else p_sl.get("hero", "未知英雄")
-
-        rank_m = re.match(r"^\s*(\d+)", str(p_sl.get("rank", "")))
-        rank_str = f"全场第 {rank_m[1]}/12" if rank_m else "排名未获取"
-        score_val = p_sl.get("score")
-        grade_val = p_sl.get("grade", "未知")
-        score_str = f"{score_val:.1f} / {grade_val}" if score_val is not None else "未评分"
-
-        lines.extend(["", SEPARATOR, ""])
-        lines.append(f"👤 {display_name} 🕹️ {hero_zh} | 综合评分：{score_str} ({rank_str})")
-
-        k = p_api.get("kills", 0) or 0
-        d = p_api.get("deaths", 0) or 0
-        a = p_api.get("assists", 0) or 0
-        t_k = team_kills.get(p_api.get("team"), 0)
-        kp_str = f"参团 {(k + a) / t_k:.0%}" if t_k > 0 else ""
-        kp_part = f" ({kp_str})" if kp_str else ""
-
-        net_worth = display_num(p_api.get("net_worth"))
-        lh = p_api.get("last_hits", 0) or 0
-        dn = p_api.get("denies", 0) or 0
-        lines.append(f"⚔️ {k}/{d}/{a}{kp_part} | 💰 灵魂 {net_worth} | 补刀 {lh}/{dn}")
-
-        stats = p_api.get("stats", [])
-        latest_stat = max(stats, key=lambda s: s.get("time_stamp_s", 0)) if stats else {}
-        if latest_stat:
-            dmg = latest_stat.get("player_damage")
-            taken = latest_stat.get("player_damage_taken")
-            mitigated = (latest_stat.get("damage_mitigated") or 0) + (latest_stat.get("damage_absorbed") or 0)
-            boss = latest_stat.get("boss_damage") or 0
-            creeps = latest_stat.get("creep_kills") or 0
-            lines.append(f"💥 英雄伤害：{display_num(dmg)} | 🛡️ 承伤：{display_num(taken)} (减免/吸收 {display_num(mitigated)})")
-            lines.append(f"🚩 运营推进：建筑伤害 {display_num(boss)} | 清兵 {display_num(creeps)}")
-
-            heal = latest_stat.get("teammate_healing") or 0
-            barrier = latest_stat.get("teammate_barriering") or 0
-            supp = []
-            if heal > 0:
-                supp.append(f"治疗 {display_num(heal)}")
-            if barrier > 0:
-                supp.append(f"护盾 {display_num(barrier)}")
-            if supp:
-                lines.append("💚 辅助贡献：" + " | ".join(supp))
-
-        bd_str = format_breakdown(p_sl.get("breakdown", []))
-        if bd_str:
-            lines.append(f"📊 原站贡献：{bd_str}")
-
-        cs = custom_stats.get(acc, {})
-        if cs:
-            shots = cs.get("shots_hit", 0) or 0
-            misses = cs.get("shots_missed", 0) or 0
-            total_shots = shots + misses
-            acc_rate = f"{shots / total_shots:.1%}" if total_shots > 0 else "未知"
-            crit_hits = cs.get("crit_hits", 0) or 0
-            crit_rate = f"{crit_hits / shots:.1%}" if shots > 0 else "未知"
-            p_succ = cs.get("parry_success_count", 0) or 0
-            p_fail = cs.get("parry_failure_count", 0) or 0
-            lines.append(f"🎯 射击准度：命中 {acc_rate} (爆头 {crit_rate}) | 招架：{p_succ}成/{p_fail}败")
-
-    cache_tag = "缓存" if cached else "本次采集"
-    lines.extend(["", SEPARATOR, f"数据来源：StatLocker 原站评分（{cache_tag}） / Deadlock API 战斗详情"])
-    return "\n".join(lines)
+    if not isinstance(info, dict) or str(info.get("match_id")) != str(data["match_id"]):
+        info = {}
+    api = {str(p["account_id"]): p for p in info.get("players", [])
+           if isinstance(p, dict) and p.get("account_id") is not None}
+    targets = [account] + [a for a in sl if a != account and a in roster]
+    duration = info.get("duration_s")
+    lines = [f"🏆 StatLocker 战报 · {data['match_id']}"]
+    if type(duration) is int and duration >= 0:
+        lines.append(f"⏱️ 时长：{duration // 60:02d}:{duration % 60:02d}")
+    if len(targets) > 1:
+        lines.append(f"👥 本场群友：{len(targets)}人")
+    if not info:
+        lines.append("⚠️ 对局详情暂不可用，仅展示原站数据。")
+    for acc in targets:
+        ps, pa = sl[acc], api.get(acc, {})
+        name = str(roster.get(acc, ps['name'])).replace("\n", " ")[:40]
+        hero = hero_name(pa['hero_id']) if pa.get('hero_id') else ps.get('hero', '未知英雄')
+        rank = re.match(r"^\s*(\d+)", str(ps.get('rank', '')))
+        team, winner = pa.get('team'), info.get('winning_team')
+        outcome = ('胜利' if team == winner else '失败') if team in (0, 1) and winner in (0, 1) else '未知'
+        lines += ["", "➖➖➖➖➖➖➖➖", f"👤 {name} · 🕹️ {hero}",
+                  f"⭐ 评分：{ps['score']:.1f} / {ps['grade']} · 全场第 {rank[1] if rank else '?'}/12"]
+        if pa:
+            lines.append(f"🏁 结果：{outcome}")
+            k, d, a = (pa.get(x) for x in ('kills', 'deaths', 'assists'))
+            teammates = [p for p in api.values() if p.get('team') == team]
+            kills = [p.get('kills') for p in teammates]
+            kp = ''
+            if len(teammates) == 6 and all(type(v) is int and v >= 0 for v in kills) and sum(kills) > 0 and all(type(v) is int and v >= 0 for v in (k, a)):
+                kp = f" · 参团 {(k+a)/sum(kills):.0%}"
+            lines += [f"⚔️ {display_num(k)}/{display_num(d)}/{display_num(a)}{kp}",
+                      f"💰 灵魂 {display_num(pa.get('net_worth'))} · 补刀 {display_num(pa.get('last_hits'))} · 反补 {display_num(pa.get('denies'))}"]
+            snaps = [v for v in (pa.get('stats') or []) if isinstance(v, dict) and type(v.get('time_stamp_s')) in (int, float)]
+            last = max(snaps, key=lambda v:v['time_stamp_s']) if snaps else {}
+            lines += [f"💥 英雄伤害 {display_num(last.get('player_damage'))} · 🛡️ 承伤 {display_num(last.get('player_damage_taken'))}",
+                      f"🚩 建筑伤害 {display_num(last.get('boss_damage'))} · 清兵 {display_num(last.get('creep_kills'))}"]
+            mitigation = [last.get('damage_mitigated'), last.get('damage_absorbed')]
+            if all(type(v) in (int,float) and math.isfinite(v) and v >= 0 for v in mitigation):
+                lines.append('🛡️ 减免/吸收 ' + display_num(sum(mitigation)))
+            support = [label + ' ' + display_num(last[key]) for key, label in [('teammate_healing', '治疗'), ('teammate_barriering', '护盾')]
+                       if type(last.get(key)) in (int, float) and last[key] > 0]
+            if support:
+                lines.append('💚 ' + ' · '.join(support))
+        lines += ['', '📊 贡献占比'] + contribution_shares(data, ps)
+        farm = data.get('farm_impact', {}).get(acc)
+        lines += ['', '🌾 资源占用']
+        if farm:
+            labels = {'LOW FARM':'低资源占用', 'MEDIUM FARM':'中等资源占用', 'HIGH FARM':'高资源占用', 'HIGHEST FARM':'队内最高资源占用'}
+            lines.append(labels.get(farm['label'], farm['label']) + ' · 发育获取约' + farm_amount(farm['farm']) + '灵魂')
+            lines.append(f"评分奖励 {farm['bonus']} · {farm['before_grade']} → {ps['grade']}")
+        else:
+            lines.append('暂未获取')
+    lines += ['', '数据来源：Deadlock API 和 Statlocker.gg' if info else '数据来源：Statlocker.gg（Deadlock API 详情暂不可用）']
+    return '\n'.join(lines)

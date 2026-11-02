@@ -15,7 +15,7 @@ from .achievements import achievement_rules, make_achievement_report
 from .analysis import PlayerAnalysis
 from .accounts import parse_account, identity
 from .latest import LatestHistory, report_slot
-from .commands import HELP, HELP_DETAILED, text_pages
+from .commands import HELP, HELP_DETAILED, HELP_TOPICS, text_pages
 from .deadlock import make_report, normalize
 from .details import DetailBackfill
 from .history import History
@@ -64,7 +64,7 @@ class DeadBot(Star):
             )
         except ValueError:
             text = "\n[DeadBot 当前配置]\n当前名单配置无效，不能引用人格或旧对话中的名单。请引导用户使用 /群友名单 检查配置。"
-        text += "\n现有指令：/群友名单、/同步（同义：同步历史、刷新） 群友称呼或全部、/绑定 AccountID或Steam数字链接、/解绑、/最新（同义：最新数据、最新比赛）、/分析（同义：打法分析） [群友称呼] [标准或排位或全部]、/英雄统计 群友称呼、/群友画像 群友称呼、/战报（旧别名：评分详情） 比赛ID、/评分规则。名单是可选功能，绑定不要求在名单内；最新会按需刷新个人历史，分析使用本地记录。最新和分析不指定群友时查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报直接读取StatLocker评分、评级和排名；抓取失败不得编造或改用本地评分，最低分不代表输局责任。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
+        text += "\n现有指令：/群友名单、/同步（同义：同步历史、刷新） 群友称呼或全部、/绑定 AccountID或Steam数字链接、/解绑、/最新（同义：最新数据、最新比赛）、/分析（同义：打法分析） [群友称呼] [标准或排位或全部]、/英雄统计 群友称呼、/群友画像 群友称呼、/战报（旧别名：评分详情） 比赛ID、/评分规则。名单是可选功能，绑定不要求在名单内；最新会按需刷新个人历史，/最近 列出最近5场。/战报 无参数等同 /最新；/分析 合并表现与练习建议，/建议 是兼容入口，使用本地记录。最新和分析不指定群友时查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报直接读取StatLocker评分、评级和排名；抓取失败不得编造或改用本地评分，最低分不代表输局责任。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
         text += "\n/帮助（同义：指令、deadbot帮助、deadbothelp）查看完整指令。自研成就评定暂停，/成就详情（同义：成就）仅提示改用战报；/成就规则 [类别或名称] 查看规则。成就独立于MVP，仅按已核实字段触发，不编造连杀、控制或打法类别评级。"
         text += "\n/日报 [群友称呼或全部] [今天、昨天或YYYY-MM-DD] 查看本地每日总结，默认全部；/建议（同义：打法建议） [群友称呼] [标准或排位或全部] 默认自己；/补全 [群友称呼或全部] 补抓近期缺失详情。同步历史后自动补详情，每轮最多25场，已有详情复用。个人六维为输出、发育、承伤、辅助、前期、推进，只与自己的同英雄同模式历史比较，不是StatLocker类别评分，不改变MVP。发育和承伤高不等于打得好，不以老玩家分数要求新手；建议只指出复盘方向，不臆测走位、出装或玩家意图。"
         request.extra_user_content_parts.append(TextPart(text=text).mark_as_temp())
@@ -77,7 +77,7 @@ class DeadBot(Star):
             event: Incoming platform event.
             detail: Empty for the overview, or 详细 for the full reference.
         """
-        text = HELP_DETAILED if detail == "详细" else HELP
+        text = HELP_DETAILED if detail == "详细" else (HELP_TOPICS.get(detail, "未找到该帮助主题。\n" + HELP) if detail else HELP)
         for page in text_pages(text, "帮助"):
             yield event.plain_result(page)
 
@@ -328,20 +328,8 @@ class DeadBot(Star):
             name: Optional roster member or mode.
             mode: 全部, 标准, 常规 or 排位.
         """
-        try:
-            if name in ("全部", "标准", "常规", "排位") and mode == "全部":
-                mode, name = name, ""
-            roster = parse_roster(self.config.get("roster", []))
-            account = await self._resolve_account(event, name, roster)
-            text = await asyncio.to_thread(
-                self.insights.advice, account, roster[account], mode
-            )
-        except ValueError as exc:
-            text = str(exc)
-        except (sqlite3.Error, OSError):
-            text = "本地历史库暂不可用，请稍后重试。"
-        for page in text_pages(text, "建议"):
-            yield event.plain_result(page)
+        async for message in self.playstyle_analysis(event, name, mode):
+            yield message
 
     @filter.command("绑定")
     async def bind_account(self, event: AstrMessageEvent, name: str = ""):
@@ -403,6 +391,20 @@ class DeadBot(Star):
         async for response in self._report(event, match_id, focus_account=account):
             yield response
 
+    @filter.command("最近", alias={"最近比赛"})
+    async def recent(self, event: AstrMessageEvent, name: str = ""):
+        try:
+            roster = parse_roster(self.config.get("roster", []))
+            account = await self._resolve_account(event, name, roster)
+            status = await self.latest_history.refresh(account)
+            text = await asyncio.to_thread(self.library.recent_report, account, roster[account])
+            text += "\n" + status
+        except ValueError as exc:
+            text = str(exc)
+        except (sqlite3.Error, OSError):
+            text = "本地历史库暂不可用，请稍后重试。"
+        yield event.plain_result(text)
+
     @filter.command("分析", alias={"打法分析"})
     async def playstyle_analysis(
         self, event: AstrMessageEvent, name: str = "", mode: str = "全部"
@@ -422,11 +424,17 @@ class DeadBot(Star):
             text = await asyncio.to_thread(
                 self.analysis.report, account, roster[account], mode
             )
+            try:
+                advice = await asyncio.to_thread(self.insights.advice, account, roster[account], mode)
+            except (sqlite3.Error, OSError):
+                advice = "练习建议暂不可用，以上表现分析保留。"
+            text += "\n\n💡 练习建议\n" + advice
         except ValueError as exc:
             text = str(exc)
         except (sqlite3.Error, OSError):
             text = "本地历史库暂不可用，请稍后重试。"
-        yield event.plain_result(text)
+        for page in text_pages(text, "分析"):
+            yield event.plain_result(page)
 
     @filter.command("英雄统计")
     async def hero_stats(
@@ -519,6 +527,10 @@ class DeadBot(Star):
                 "用法：/战报 比赛ID [刷新]（旧别名：/评分详情），不接受额外参数。"
             )
             return
+        if not match_id and not refresh:
+            async for response in self.latest(event):
+                yield response
+            return
         async for response in self._report(event, match_id, refresh):
             yield response
 
@@ -565,6 +577,9 @@ class DeadBot(Star):
                         ) as resp:
                             if resp.status == 200:
                                 raw_match = await resp.json()
+                                if not isinstance(raw_match, dict) or str(raw_match.get("match_info", {}).get("match_id")) != mid:
+                                    raw_match = None
+                                    raise ValueError("API 比赛编号不匹配")
                                 try:
                                     await asyncio.to_thread(self.history.cache_detail, mid, raw_match)
                                     from .deadlock import normalize

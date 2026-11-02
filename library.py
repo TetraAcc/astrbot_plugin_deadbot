@@ -61,6 +61,26 @@ class Library:
         finally:
             db.close()
 
+    def recent_report(self, account, name):
+        db = self.connect()
+        try:
+            query = 'SELECT match_id,start_time FROM player_history WHERE account=?'
+            params = [account]
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='deadlock_records'").fetchone():
+                query += ' UNION ALL SELECT match_id,start_time FROM deadlock_records WHERE account=?'
+                params.append(account)
+            rows = db.execute('SELECT match_id,MAX(start_time) FROM (' + query + ') GROUP BY match_id ORDER BY MAX(start_time) DESC,CAST(match_id AS INTEGER) DESC LIMIT 5', params).fetchall()
+        finally:
+            db.close()
+        if not rows:
+            return f'{name} 暂无已收录比赛，请稍后重试。'
+        lines = [f'🕘 {name} · 最近{len(rows)}场（北京时间）']
+        for i, (mid, stamp) in enumerate(rows, 1):
+            date = datetime.fromtimestamp(stamp, CHINA_TIME).strftime('%m-%d %H:%M') if stamp else '时间未知'
+            lines.append(f'{i}. {date} · 比赛 {mid}')
+        lines.append('复制比赛ID：/战报 比赛ID')
+        return '\n'.join(lines)
+
     def import_history(self, account, payload):
         if not isinstance(payload, list):
             raise ValueError("历史接口返回格式异常")  # noqa: TRY004 - preserve command validation
