@@ -3,8 +3,10 @@ import asyncio
 from datetime import datetime, timezone
 import json
 import math
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -81,9 +83,34 @@ def validate(data, match_id):
 
 
 class StatLockerService:
+    @staticmethod
+    def _find_python():
+        candidates = []
+        if sys.executable:
+            candidates.append(sys.executable)
+        for kv in [
+            "/home/deck/.local/share/webclass-sync/venv/bin/python",
+            os.path.expanduser("~/.astrbot/data/venv/bin/python"),
+            os.path.expanduser("~/.local/share/astrbot/venv/bin/python"),
+        ]:
+            if os.path.exists(kv) and kv not in candidates:
+                candidates.append(kv)
+        for name in ["python3", "python"]:
+            w = shutil.which(name)
+            if w and w not in candidates:
+                candidates.append(w)
+        for py in candidates:
+            try:
+                r = subprocess.run([py, "-c", "import playwright"], capture_output=True, timeout=5)
+                if r.returncode == 0:
+                    return py
+            except Exception:
+                pass
+        return candidates[0] if candidates else sys.executable
+
     def __init__(self, directory, python=None, fetch=None, ttl=86400, capacity=8, delay=3):
         self.directory = Path(directory)
-        self.python = python or sys.executable
+        self.python = python or self._find_python()
         self.fetch = fetch or self._fetch
         self.ttl, self.capacity, self.delay = ttl, capacity, delay
         self.pending = {}
@@ -157,8 +184,18 @@ class StatLockerService:
         url = f"https://statlocker.gg/profile/{account}/matches/{mid}/mvp/mvp-breakdown"
         def run():
             try:
+                env = os.environ.copy()
+                pythonpath_parts = [p for p in sys.path if p]
+                if "PYTHONPATH" in env:
+                    pythonpath_parts.append(env["PYTHONPATH"])
+                user_site = os.path.expanduser("~/.astrbot/data/site-packages")
+                if os.path.exists(user_site) and user_site not in pythonpath_parts:
+                    pythonpath_parts.insert(0, user_site)
+                env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+
                 result = subprocess.run([self.python, str(Path(__file__).with_name("statlocker_worker.py")), url],
                     capture_output=True, text=True, encoding="utf-8", timeout=150,
+                    env=env,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 reply = json.loads(result.stdout)
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
@@ -229,36 +266,59 @@ def farm_amount(text):
     return text
 
 
-def render(data, account, cached, raw_match=None, roster=None):
+def render(data, account, cached, raw_match=None, roster=None, stat_error=None):
     roster = roster or {}
-    sl = {str(p["account_id"]): p for p in data["players"]}
     account = str(account)
-    if account not in sl:
+    if not data and not raw_match:
         return "本场没有查询账号，请核对绑定或比赛编号；不会替换为其他玩家的评分。"
+
     info = raw_match.get("match_info", {}) if isinstance(raw_match, dict) else {}
-    if not isinstance(info, dict) or str(info.get("match_id")) != str(data["match_id"]):
+    sl = {str(p["account_id"]): p for p in data["players"]} if (data and "players" in data) else {}
+    mid = str(info.get("match_id", data.get("match_id", "?") if data else "?"))
+
+    if not isinstance(info, dict) or (data and str(info.get("match_id")) != str(data["match_id"])):
         info = {}
     api = {str(p["account_id"]): p for p in info.get("players", [])
            if isinstance(p, dict) and p.get("account_id") is not None}
-    targets = [account] + [a for a in sl if a != account and a in roster]
+
+    if sl and account not in sl:
+        return "本场没有查询账号，请核对绑定或比赛编号；不会替换为其他玩家的评分。"
+    if not sl and api and account not in api:
+        return "本场没有查询账号，请核对绑定或比赛编号；不会替换为其他玩家的评分。"
+
+    if sl:
+        targets = [account] + [a for a in sl if a != account and a in roster]
+    elif api:
+        targets = [account] + [a for a in api if a != account and a in roster]
+    else:
+        return "本场没有查询账号，请核对绑定或比赛编号；不会替换为其他玩家的评分。"
+
     duration = info.get("duration_s")
-    lines = [f"🏆 StatLocker 战报 · {data['match_id']}"]
+    lines = [f"🏆 StatLocker 战报 · {data['match_id']}"] if data else [f"🏆 Deadlock 战报 · {mid}"]
     if type(duration) is int and duration >= 0:
         lines.append(f"⏱️ 时长：{duration // 60:02d}:{duration % 60:02d}")
     if len(targets) > 1:
         lines.append(f"👥 本场群友：{len(targets)}人")
-    if not info:
+    if data and not info:
         lines.append("⚠️ 对局详情暂不可用，仅展示原站数据。")
+    elif not data and stat_error:
+        lines.append(f"⚠️ {stat_error}")
+
     for acc in targets:
-        ps, pa = sl[acc], api.get(acc, {})
-        name = str(roster.get(acc, ps['name'])).replace("\n", " ")[:40]
+        ps, pa = sl.get(acc, {}), api.get(acc, {})
+        name = str(roster.get(acc, ps.get('name', f"玩家 {acc}"))).replace("\n", " ")[:40]
         hero = hero_name(pa['hero_id']) if pa.get('hero_id') else ps.get('hero', '未知英雄')
-        rank = re.match(r"^\s*(\d+)", str(ps.get('rank', '')))
-        team, winner = pa.get('team'), info.get('winning_team')
-        outcome = ('胜利' if team == winner else '失败') if team in (0, 1) and winner in (0, 1) else '未知'
-        lines += ["", "➖➖➖➖➖➖➖➖", f"👤 {name} · 🕹️ {hero}",
-                  f"⭐ 评分：{ps['score']:.1f} / {ps['grade']} · 全场第 {rank[1] if rank else '?'}/12"]
+        
+        lines += ["", "➖➖➖➖➖➖➖➖", f"👤 {name} · 🕹️ {hero}"]
+        if ps:
+            rank = re.match(r"^\s*(\d+)", str(ps.get('rank', '')))
+            lines.append(f"⭐ 评分：{ps['score']:.1f} / {ps['grade']} · 全场第 {rank[1] if rank else '?'}/12")
+        else:
+            lines.append("⭐ 评分：暂未就绪（StatLocker 评分未获取）")
+
         if pa:
+            team, winner = pa.get('team'), info.get('winning_team')
+            outcome = ('胜利' if team == winner else '失败') if team in (0, 1) and winner in (0, 1) else '未知'
             lines.append(f"🏁 结果：{outcome}")
             k, d, a = (pa.get(x) for x in ('kills', 'deaths', 'assists'))
             teammates = [p for p in api.values() if p.get('team') == team]
@@ -279,14 +339,23 @@ def render(data, account, cached, raw_match=None, roster=None):
                        if type(last.get(key)) in (int, float) and last[key] > 0]
             if support:
                 lines.append('💚 ' + ' · '.join(support))
-        lines += ['', '📊 贡献占比'] + contribution_shares(data, ps)
-        farm = data.get('farm_impact', {}).get(acc)
-        lines += ['', '🌾 资源占用']
-        if farm:
-            labels = {'LOW FARM':'低资源占用', 'MEDIUM FARM':'中等资源占用', 'HIGH FARM':'高资源占用', 'HIGHEST FARM':'队内最高资源占用'}
-            lines.append(labels.get(farm['label'], farm['label']) + ' · 发育获取约' + farm_amount(farm['farm']) + '灵魂')
-            lines.append(f"评分奖励 {farm['bonus']} · {farm['before_grade']} → {ps['grade']}")
-        else:
-            lines.append('暂未获取')
-    lines += ['', '数据来源：Deadlock API 和 Statlocker.gg' if info else '数据来源：Statlocker.gg（Deadlock API 详情暂不可用）']
+                
+        if ps and data:
+            lines += ['', '📊 贡献占比'] + contribution_shares(data, ps)
+            farm = data.get('farm_impact', {}).get(acc)
+            lines += ['', '🌾 资源占用']
+            if farm:
+                labels = {'LOW FARM':'低资源占用', 'MEDIUM FARM':'中等资源占用', 'HIGH FARM':'高资源占用', 'HIGHEST FARM':'队内最高资源占用'}
+                lines.append(labels.get(farm['label'], farm['label']) + ' · 发育获取约' + farm_amount(farm['farm']) + '灵魂')
+                lines.append(f"评分奖励 {farm['bonus']} · {farm['before_grade']} → {ps['grade']}")
+            else:
+                lines.append('暂未获取')
+
+    if data and info:
+        src = '数据来源：Deadlock API 和 Statlocker.gg'
+    elif data:
+        src = '数据来源：Statlocker.gg（Deadlock API 详情暂不可用）'
+    else:
+        src = '数据来源：Deadlock API（StatLocker 评分暂未获取）'
+    lines += ['', src]
     return '\n'.join(lines)

@@ -1,15 +1,32 @@
 """Isolated browser worker, usable from Windows AstrBot's event loop."""
 import asyncio
 import json
+import subprocess
 import sys
 from statlocker_browser import collect, match_url
+
+
+async def launch_browser(pw):
+    if sys.platform == "win32":
+        try:
+            return await pw.chromium.launch(channel="msedge", headless=True)
+        except Exception:
+            pass
+    try:
+        return await pw.chromium.launch(headless=True)
+    except Exception as exc:
+        err_str = str(exc).lower()
+        if "executable doesn't exist" in err_str or "playwright install" in err_str:
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
+                           capture_output=True, timeout=300)
+            return await pw.chromium.launch(headless=True)
+        raise
 
 
 async def run(url):
     from playwright.async_api import async_playwright
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            **({"channel": "msedge"} if sys.platform == "win32" else {}), headless=True)
+        browser = await launch_browser(pw)
         try:
             page = await browser.new_page(viewport={"width": 1920, "height": 2160})
             return await asyncio.wait_for(collect(page, url), timeout=110)

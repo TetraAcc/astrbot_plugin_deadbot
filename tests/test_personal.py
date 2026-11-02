@@ -246,3 +246,15 @@ class SimplifiedCommandTests(PersonalTests):
         self.assertEqual(a,b)
         self.assertIn('近期表现',''.join(a))
         self.assertIn('练习方向',''.join(a))
+
+    async def test_report_graceful_degradation_with_raw_match(self):
+        service = importlib.import_module(PACKAGE + ".statlocker_service")
+        self.plugin._report = load_handlers()._report.__get__(self.plugin)
+        self.plugin.statlocker = SimpleNamespace(get=AsyncMock(side_effect=service.StatLockerError("采集环境未安装 Playwright")))
+        await self.collect(self.plugin.bind_account, self.event(), "1001")
+        raw = {"match_info": {"match_id": "123", "duration_s": 1200, "winning_team": 0, "players": [{"account_id": 1001, "hero_id": 1, "team": 0, "kills": 5, "deaths": 1, "assists": 2}]}}
+        self.plugin.history.cache_detail("123", raw)
+        output = await self.collect(self.plugin._report, self.event(), "123")
+        self.assertIn("Deadlock 战报 · 123", output[-1])
+        self.assertIn("评分：暂未就绪", output[-1])
+        self.assertIn("5/1/2", output[-1])

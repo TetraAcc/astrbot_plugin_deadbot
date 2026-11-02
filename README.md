@@ -2,7 +2,7 @@
 
 适用于 AstrBot 的 Deadlock 战报与复盘插件。融合 **StatLocker 原站评分**（评级、排名、全场同项贡献占比、Farm 资源占用）与 **Deadlock API 战斗详情**（胜负、时长、KDA、伤害、承伤、推进等）。
 
-当前版本：**v0.9.6**
+当前版本：**v0.9.7**
 
 ---
 
@@ -51,9 +51,9 @@
 
 ---
 
-## 🛠️ 运行依赖
+## 🛠️ 运行依赖与即插即用
 
-本插件使用 Playwright 无头浏览器采集 StatLocker 原站数据：
-- **依赖安装**：在 Python 环境中执行 `pip install -r requirements.txt`。
-- **浏览器**：Windows 自动调用系统已安装的 Microsoft Edge；Linux 需执行 `python -m playwright install chromium`。
-- **独立环境**：若使用独立的采集 Python 环境，可在插件配置中填写 `statlocker_python` 完整路径。
+本插件采用**即插即用 + 优雅降级**设计：
+- **自动环境探测**：后台自动探查系统及已装依赖的 Python 解释器，无需手动指定路径；Windows 优先调用系统自带 Edge，Linux 缺少 Chromium 内核时会自动后台静默补装。
+- **战报优雅降级**：若 StatLocker 评分未收录或无头浏览器排队超时，战报依然**100% 完整输出**客观战斗详情（KDA、伤害、承伤、推进、胜负、时长等），绝不报废整张战报。
+- **可选独立环境**：如需指定外部 Python 采集环境，可在 WebUI 插件配置中填写 `statlocker_python` 路径。
