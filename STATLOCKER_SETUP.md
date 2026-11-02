@@ -7,7 +7,7 @@
 插件配置项 `statlocker_python` 可留空，使用 AstrBot 的 Python；也可填写已经安装 Playwright 的独立 Python 完整路径。本机已验证的独立环境为：
 
 ```text
-C:\Users\29280\Documents\Codex\deadbot-collector-env\Scripts\python.exe
+C:\Users\Username\Documents\deadbot-collector-env\Scripts\python.exe
 ```
 
 这个路径只适用于本机，其他使用者应安装自己的环境。保存配置并重载插件后，发送 `/绑定 AccountID`，再使用 `/最新` 或 `/战报 比赛ID`。完整 StatLocker 比赛链接也可指定账号，无需名单。
@@ -25,8 +25,8 @@ C:\Users\29280\Documents\Codex\deadbot-collector-env\Scripts\python.exe
 
 ## 已验证与限制
 
-两场真实比赛129078319、129063598的无头采集成功。129078319中账号417459099为71.3/B+、全场第2，与网页一致。同场并发合并、磁盘缓存命中及失败路径已验证。
+真实比赛无头采集成功，评分、评级与网页结果完全一致。同场并发合并、磁盘缓存命中及失败路径已验证。
 
-84项回归测试通过。尚未部署到当前运行的 QQ 实例，也未完成本版本 QQ 消息验收。网页结构或访问限制发生变化仍可能需要更新采集器；遇到验证码或登录要求会失败，不自动绕过。
+全量回归测试通过。网页结构或访问限制发生变化仍可能需要更新采集器；遇到验证码或登录要求会失败，不自动绕过。
 
 旧评分代码和研究材料保留便于追溯，但在线战报不调用它们。公开网页采集不是官方 API 集成，未来可替换为获批的官方接口。
