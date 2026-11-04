@@ -89,9 +89,11 @@ class StatLockerService:
         if sys.executable:
             candidates.append(sys.executable)
         for kv in [
-            "/home/deck/.local/share/webclass-sync/venv/bin/python",
+            os.path.expanduser("~/.local/share/webclass-sync/venv/bin/python"),
             os.path.expanduser("~/.astrbot/data/venv/bin/python"),
             os.path.expanduser("~/.local/share/astrbot/venv/bin/python"),
+            os.path.expanduser("~/venv/bin/python"),
+            os.path.expanduser("~/.venv/bin/python"),
         ]:
             if os.path.exists(kv) and kv not in candidates:
                 candidates.append(kv)
@@ -101,7 +103,13 @@ class StatLockerService:
                 candidates.append(w)
         for py in candidates:
             try:
-                r = subprocess.run([py, "-c", "import playwright"], capture_output=True, timeout=5)
+                # 纯净隔离测试：验证解释器是否能正常独立导入核心库与 playwright，杜绝污染环境
+                clean_env = os.environ.copy()
+                clean_env.pop("PYTHONPATH", None)
+                r = subprocess.run(
+                    [py, "-c", "import re, json, asyncio; import playwright"],
+                    capture_output=True, timeout=5, env=clean_env
+                )
                 if r.returncode == 0:
                     return py
             except Exception:
@@ -185,13 +193,25 @@ class StatLockerService:
         def run():
             try:
                 env = os.environ.copy()
-                pythonpath_parts = [p for p in sys.path if p]
-                if "PYTHONPATH" in env:
-                    pythonpath_parts.append(env["PYTHONPATH"])
-                user_site = os.path.expanduser("~/.astrbot/data/site-packages")
-                if os.path.exists(user_site) and user_site not in pythonpath_parts:
-                    pythonpath_parts.insert(0, user_site)
-                env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+                is_same_interpreter = False
+                try:
+                    is_same_interpreter = os.path.samefile(self.python, sys.executable)
+                except Exception:
+                    is_same_interpreter = (self.python == sys.executable)
+
+                if is_same_interpreter:
+                    pythonpath_parts = []
+                    user_site = os.path.expanduser("~/.astrbot/data/site-packages")
+                    if os.path.exists(user_site):
+                        pythonpath_parts.append(user_site)
+                    if env.get("PYTHONPATH"):
+                        pythonpath_parts.append(env["PYTHONPATH"])
+                    if pythonpath_parts:
+                        env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+                else:
+                    # 跨解释器彻底隔离：显式清除父进程残留的 PYTHONPATH，
+                    # 严防主程序不同版本的标准库/C扩展倒灌进子进程引发 SRE module mismatch
+                    env.pop("PYTHONPATH", None)
 
                 result = subprocess.run([self.python, str(Path(__file__).with_name("statlocker_worker.py")), url],
                     capture_output=True, text=True, encoding="utf-8", timeout=150,

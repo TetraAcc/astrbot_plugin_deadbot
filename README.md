@@ -2,7 +2,7 @@
 
 适用于 AstrBot 的 Deadlock 战报与复盘插件。融合 **StatLocker 原站评分**（评级、排名、全场同项贡献占比、Farm 资源占用）与 **Deadlock API 战斗详情**（胜负、时长、KDA、伤害、承伤、推进等）。
 
-当前版本：**v0.9.7**
+当前版本：**v0.9.8**
 
 ---
 
@@ -55,5 +55,21 @@
 
 本插件采用**即插即用 + 优雅降级**设计：
 - **自动环境探测**：后台自动探查系统及已装依赖的 Python 解释器，无需手动指定路径；Windows 优先调用系统自带 Edge，Linux 缺少 Chromium 内核时会自动后台静默补装。
+- **环境安全隔离**：子进程与主进程跨 Python 版本调用时自动隔离环境变量，杜绝跨版本标准库倒灌污染（彻底避免 `SRE module mismatch` 报错）。
 - **战报优雅降级**：若 StatLocker 评分未收录或无头浏览器排队超时，战报依然**100% 完整输出**客观战斗详情（KDA、伤害、承伤、推进、胜负、时长等），绝不报废整张战报。
 - **可选独立环境**：如需指定外部 Python 采集环境，可在 WebUI 插件配置中填写 `statlocker_python` 路径。
+
+---
+
+## ❓ 常见问题排查 (Troubleshooting)
+
+**Q：战报提示“采集进程启动失败或超时”或“未安装 Playwright”？**
+* **排查原因**：
+  1. 插件需要调用安装了 Playwright 的 Python 环境。如果在 Linux / Docker / SteamOS 上使用 AppImage 版 AstrBot，主程序内置的 Python 与系统外部 Python 版本可能不一致（例如内置 3.12 与系统 3.14）；
+  2. 若系统环境混杂，子进程可能找不到正确的 Playwright 依赖。
+* **解决办法**：
+  * **一劳永逸指定环境**：在 AstrBot 后台进入 **WebUI → 插件 → DeadBot → 配置**，在 `statlocker_python` 中填入已成功安装 Playwright 的 Python 完整绝对路径（例如 Windows 填 `C:\Users\...\python.exe`，Linux 填 `/usr/bin/python3` 或对应 venv 的 python 路径）；
+  * **补装浏览器内核**：在对应 Python 环境下运行 `python -m playwright install chromium`。
+
+**Q：为什么有的比赛有 KDA 和伤害，但评分显示“暂未就绪”？**
+* 这是插件的**优雅降级机制**：说明该场对局在 StatLocker 网页端尚未收录（刚打完通常有几分钟入库延迟），或者网络波动导致网页抓取未完成。为防止整张战报报错报废，插件会优先呈现 Deadlock 官方 API 的真实客观战果，待网页收录后发送 `/战报 比赛ID 刷新` 即可补齐评分。
