@@ -558,7 +558,7 @@ class DeadBot(Star):
         except (sqlite3.Error, OSError):
             yield event.plain_result("绑定信息暂不可用，请稍后重试。")
             return
-        yield event.plain_result(f"正在查询 StatLocker 比赛 {mid}，优先使用缓存；未缓存时进入采集队列，每场最多约两分钟。")
+        yield event.plain_result(f"正在查询 StatLocker 比赛 {mid}，优先使用缓存；未缓存时进入采集队列，抓取通常需约数秒。")
         raw_match = None
         try:
             raw_match = await asyncio.to_thread(self.history.cached_detail, mid)

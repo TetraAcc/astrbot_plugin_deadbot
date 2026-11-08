@@ -1,0 +1,30 @@
+{
+  "match_id": "129078319",
+  "source": "https://statlocker.gg/profile/417459099/matches/129078319/mvp/mvp-breakdown",
+  "player": {
+    "account_id": "417459099",
+    "name": "Tetrahedron",
+    "hero": "Drifter",
+    "rank": "2\nnd",
+    "grade": "B+",
+    "score": 71.3,
+    "breakdown": [
+      "DAMAGE DEALER\nLate Game Damage:\n+4687.65 pts\nKill Score:\n+4597.61 pts\nCATEGORY TOTAL: 9285.3 PTS\nTotal Points: 16000.1 pts",
+      "EARLY IMPACT\nEarly Game Damage:\n+750.75 pts\nEarly Game Assists:\n+440.00 pts\nCATEGORY TOTAL: 1190.8 PTS\nTotal Points: 16000.1 pts",
+      "PUSHER\nPrebase Objective Damage:\n+1538.01 pts\nLane Creep Kills:\n+875.52 pts\nBase Objective Damage:\n+333.85 pts\nCATEGORY TOTAL: 2747.4 PTS\nTotal Points: 16000.1 pts",
+      "TANK\nDamage Absorbed:\n+1267.38 pts\nCATEGORY TOTAL: 1267.4 PTS\nTotal Points: 16000.1 pts",
+      "SUPPORT\nLate Game Assists:\n+1800.00 pts\nCrowd Control Score:\n+1358.00 pts\nHealing Prevented:\n+51.10 pts\nTeammate Barriers Provided:\n+0.00 pts\nUrn Deposits:\n+0.00 pts\nCATEGORY TOTAL: 3209.1 PTS\nTotal Points: 16000.1 pts",
+      "TEAM FARM BONUS\nTeam Farm Bonus:\n+1347.68 pts\nCATEGORY TOTAL: 1347.7 PTS\nTotal Points: 16000.1 pts",
+      "DEATHS\nDeath Score:\n-3047.44 pts\nCATEGORY TOTAL: -3047.4 PTS\nTotal Points: 16000.1 pts"
+    ]
+  },
+  "expected": {
+    "DAMAGE DEALER": 41.4,
+    "SUPPORT": 14.3,
+    "PUSHER": 12.2,
+    "TEAM FARM BONUS": 6.0,
+    "TANK": 5.6,
+    "EARLY IMPACT": 5.3,
+    "DEATHS": -13.6
+  }
+}

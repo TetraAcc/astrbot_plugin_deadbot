@@ -3,3 +3,9 @@ __pycache__/
 *$py.class
 *.bak
 .DS_Store
+diagnose*
+live-*.json
+verify_*.py
+audit-*/
+REPORT_*.txt
+VERIFICATION_*.md

@@ -78,6 +78,28 @@ def validate(data, match_id):
                 raise ValueError('资源数量无效')
             if not isinstance(item.get('before_grade'),str):
                 raise ValueError('资源评级缺失')
+    for account, item in data.get('highlights', {}).items():
+        player = next((p for p in rows if p['account_id'] == account), None)
+        if not player or item.get('account_id') != account or item.get('match_id') != str(match_id) or (item.get('score') is not None and item.get('score') != player['score']):
+            raise ValueError('亮点身份或评分不匹配')
+        comp = item.get('components', {})
+        required = set(CATEGORY_NAMES) - {'TEAM FARM BONUS'}
+        if (comp and not required <= set(comp)) or set(comp) - set(CATEGORY_NAMES) or (not comp and item.get('components_status') != 'not_shown'):
+            raise ValueError('亮点评分分项不完整')
+        if any(type(v) not in (int,float) or not math.isfinite(v) for v in comp.values()) or (comp and abs(sum(comp.values()) - player['score']) > .5):
+            raise ValueError('亮点评分分项不一致')
+        if not isinstance(item.get('facts'), list) or any(not isinstance(f,dict) or any(not isinstance(f.get(k),str) for k in ('title','value','description')) for f in item['facts']):
+            raise ValueError('亮点格式无效')
+        if 'cards' in item:
+            cards = item['cards']
+            if not isinstance(cards, list) or not cards or any(not isinstance(c, dict) or any(not isinstance(c.get(k), str) or not c[k] for k in ('id','title','description')) for c in cards):
+                raise ValueError('亮点卡片不完整')
+            ids = [c['id'] for c in cards]
+            if len(ids) != len(set(ids)) or item.get('cards_status') != 'settled':
+                raise ValueError('亮点卡片未稳定或重复')
+            expected = [dict(title=c['title'], value=c['value'], description=c['description'], card_id=c['id']) for c in cards if c['id'] != 'mvp-build']
+            if item['facts'] != expected:
+                raise ValueError('亮点卡片有漏采或串位')
     datetime.fromisoformat(data["captured_at"])
     return data
 
@@ -130,7 +152,7 @@ class StatLockerService:
     def _read(self, mid):
         try:
             envelope = json.loads((self.directory / f"{mid}.json").read_text(encoding="utf-8"))
-            if envelope.get("schema") != 2 or not 0 <= time.time() - envelope["stored_at"] < self.ttl:
+            if envelope.get("schema") != 5 or not 0 <= time.time() - envelope["stored_at"] < self.ttl:
                 return None
             return validate(envelope["data"], mid)
         except (OSError, ValueError, KeyError, TypeError):
@@ -144,7 +166,7 @@ class StatLockerService:
             raise StatLockerError("采集服务正在关闭，请稍后重试。")
         if not refresh:
             cached = await asyncio.to_thread(self._read, mid)
-            if cached is not None:
+            if cached is not None and ('highlights' not in cached or account in cached['highlights'] or account not in {p['account_id'] for p in cached['players']}):
                 return cached, True
         task = self.pending.get(mid)
         if task is None:
@@ -168,6 +190,12 @@ class StatLockerService:
             await asyncio.sleep(max(0, self.next_start - time.monotonic()))
             try:
                 data = validate(await self.fetch(mid, account), mid)
+                old = await asyncio.to_thread(self._read, mid)
+                if old and 'highlights' in data:
+                    scores = {p['account_id']:p['score'] for p in data['players']}
+                    old_scores = {p['account_id']:p['score'] for p in old['players']}
+                    if scores == old_scores:
+                        data['highlights'] = {**old.get('highlights', {}), **data['highlights']}
                 await asyncio.to_thread(self._save, mid, data)
                 return data
             except Exception as exc:
@@ -184,7 +212,7 @@ class StatLockerService:
         self.directory.mkdir(parents=True, exist_ok=True)
         target = self.directory / f"{mid}.json"
         temporary = target.with_suffix(".tmp")
-        temporary.write_text(json.dumps(dict(schema=2, stored_at=time.time(), data=data),
+        temporary.write_text(json.dumps(dict(schema=5, stored_at=time.time(), data=data),
                                         ensure_ascii=False), encoding="utf-8")
         temporary.replace(target)
 
@@ -214,7 +242,7 @@ class StatLockerService:
                     env.pop("PYTHONPATH", None)
 
                 result = subprocess.run([self.python, str(Path(__file__).with_name("statlocker_worker.py")), url],
-                    capture_output=True, text=True, encoding="utf-8", timeout=150,
+                    capture_output=True, text=True, encoding="utf-8", timeout=100,
                     env=env,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 reply = json.loads(result.stdout)
@@ -284,6 +312,53 @@ def farm_amount(text):
     if text.lower().endswith('m'):
         return f"{float(text[:-1])*100:g}万"
     return text
+
+
+def format_highlight(fact):
+    title = fact['title'].strip().lower()
+    titles = {'most low-hp kills':'低血量击杀最多', 'top healing duo':'最高治疗搭档',
+              'killed every enemy':'击杀过所有敌方英雄', 'souls/min vs usual':'每分钟灵魂对比平时',
+              'damage traded':'伤害交换', 'most ally healing':'队友治疗最多', 'accuracy vs usual':'命中率对比平时', 'mvp lead over next':'领先第二名'}
+    value = fact['value']
+    desc = fact['description']
+    titles.update({'lobby 1st places':'全场第一项', 'elite pair':'社区对比',
+                   'kills vs assists':'击杀与助攻', 'damaged most':'伤害往来',
+                   'head to head':'相邻评分对比', 'kill types':'击杀类型'})
+    if title == 'lobby 1st places':
+        m = re.fullmatch(r'(\d+) stats led (.*?) Ally healing ([\d.k]+) Accuracy ([\d.]+)% CC score ([\d.k]+)', desc)
+        if m:
+            return f'🥇 全场第一项：{m[1]}项——队友治疗 {m[3]}、命中率 {m[4]}%、控制分 {m[5]}'
+    if title == 'elite pair':
+        m = re.fullmatch(r'Top ([\d.]+)% Denies (\d+) You ([\d.]+) Avg Top ([\d.]+)% Crowd Control ([\d.k]+) You ([\d.k]+) Avg', desc)
+        if m:
+            return f'✨ 原站社区对比：反补前 {m[1]}%（{m[2]}次），控制前 {m[4]}%（{m[5]}）'
+    # Translate confirmed website prose only; never infer awards from statistics.
+    if title == 'killed every enemy':
+        return f"🎯 {titles[title]}：{value}（每位至少一次）"
+    if title == 'most low-hp kills':
+        m = re.search(r'of their (\d+) kills came while they were on (\d+)% health or less',desc)
+        if m:
+            return f"🔥 {titles[title]}：{m[1]}次击杀中，{value}次发生在自身血量≤{m[2]}%时"
+    if title == 'top healing duo':
+        m = re.search(r'healing to them from (.+?), (\d+)% of the healing they got from teammates',desc)
+        if m:
+            hero = {'Nurse Harrow':'护士'}.get(m[1],m[1])
+            return f"💚 {titles[title]}：{hero}提供约{value}治疗，占队友治疗的{m[2]}%"
+    if title == 'most ally healing':
+        m = re.search(r'(\d+)% of their healing went to allies. Next most: (.+?), ([\d.k]+)',desc)
+        if m:
+            hero = {'McGinnis':'麦金尼斯'}.get(m[2],m[2])
+            return f"💚 队友治疗最多：约{value}；{m[1]}%治疗用于队友，第二名{hero}约{m[3]}"
+        return f"💚 队友治疗最多：约{value}，全场最高；{desc}"
+    if title == 'accuracy vs usual':
+        m = re.search(r'(.+?) accuracy this game, roughly (.+?)x their average of (.+?) Their average is over (\d+) games', desc)
+        if m:
+            return f"🎯 命中率：{m[1]}，约为平时{m[3]}的{m[2]}倍（原站{m[4]}场样本）"
+    if title == 'souls/min vs usual':
+        m = re.search(r'(.+?) souls per minute this game, roughly (.+?)x their average of (.+?) Their average is over (\d+) games',desc)
+        if m:
+            return f"🌱 每分钟灵魂：{m[1]}，约为平时{m[3]}的{m[2]}倍（原站{m[4]}场样本）"
+    return f"• {titles.get(title, fact['title'])}：" + (value + '；' if value else '') + desc
 
 
 def render(data, account, cached, raw_match=None, roster=None, stat_error=None):
@@ -361,7 +436,25 @@ def render(data, account, cached, raw_match=None, roster=None, stat_error=None):
                 lines.append('💚 ' + ' · '.join(support))
                 
         if ps and data:
-            lines += ['', '📊 贡献占比'] + contribution_shares(data, ps)
+            highlight = data.get('highlights', {}).get(acc)
+            if highlight:
+                lines += ['', '📊 评分构成']
+                if not highlight['components']:
+                    lines.append('评分构成暂未获取')
+                parts = [CATEGORY_NAMES[k] + f" {v:+.1f}" for k,v in highlight['components'].items()]
+                lines += [' · '.join(parts[i:i+3]) for i in range(0,len(parts),3)]
+                if parts:
+                    lines.append('分项为原站总分构成，非各项满分100分。')
+                    if highlight.get('component_source') == 'stat_display_formula':
+                        lines.append('按原站展示公式换算；points 舍入可能产生约0.1分误差。')
+                lines += ['', '✨ 本局亮点']
+                facts = highlight['facts']
+                if not facts:
+                    lines.append('原站未展示文字亮点')
+                for fact in facts:
+                    lines.append(format_highlight(fact))
+            else:
+                lines += ['', '📊 评分构成：暂未获取', '✨ 本局亮点：暂未获取']
             farm = data.get('farm_impact', {}).get(acc)
             lines += ['', '🌾 资源占用']
             if farm:

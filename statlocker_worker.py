@@ -18,7 +18,7 @@ async def launch_browser(pw):
         err_str = str(exc).lower()
         if "executable doesn't exist" in err_str or "playwright install" in err_str:
             subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
-                           capture_output=True, timeout=300)
+                           capture_output=True, timeout=85)
             return await pw.chromium.launch(headless=True)
         raise
 
@@ -29,7 +29,7 @@ async def run(url):
         browser = await launch_browser(pw)
         try:
             page = await browser.new_page(viewport={"width": 1920, "height": 2160})
-            return await asyncio.wait_for(collect(page, url), timeout=110)
+            return await asyncio.wait_for(collect(page, url), timeout=85)
         finally:
             await browser.close()
 

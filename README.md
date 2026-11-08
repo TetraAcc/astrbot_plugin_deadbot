@@ -1,8 +1,8 @@
 # DeadBot 个人复盘
 
-适用于 AstrBot 的 Deadlock 战报与复盘插件。融合 **StatLocker 原站评分**（评级、排名、全场同项贡献占比、Farm 资源占用）与 **Deadlock API 战斗详情**（胜负、时长、KDA、伤害、承伤、推进等）。
+适用于 AstrBot 的 Deadlock 战报与复盘插件。融合 **StatLocker 原站评分**（评级、排名、评分构成、本局亮点、Farm 资源占用）与 **Deadlock API 战斗详情**（胜负、时长、KDA、伤害、承伤、推进等）。
 
-当前版本：**v0.9.8**
+当前版本：**v0.9.9**
 
 ---
 
