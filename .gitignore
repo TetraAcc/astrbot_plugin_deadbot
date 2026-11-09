@@ -9,3 +9,5 @@ verify_*.py
 audit-*/
 REPORT_*.txt
 VERIFICATION_*.md
+
+data/

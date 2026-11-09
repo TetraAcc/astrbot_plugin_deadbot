@@ -200,6 +200,63 @@ class HighlightTests(unittest.TestCase):
         text=module.format_highlight(dict(title='Elite Pair',value='',description='Top 2% Denies 14 You 3.0 Avg Top 3% Crowd Control 8.9k You 1.1k Avg'))
         self.assertIn('反补前 2%（14次），控制前 3%',text)
 
+    def test_junk_dom_cards_are_filtered(self):
+        # 验证图表坐标轴刻度、对线表格与散点图 legend 等无意义 DOM 文本被正确滤除
+        self.assertIsNone(module.format_highlight(dict(
+            title='Damage/min', value='', description='2.6k 3:00 6:00 9:00 12:00 15:00', card_id='per-minute-damage'
+        )))
+        self.assertIsNone(module.format_highlight(dict(
+            title="Tetrahedron's lane · Green", value='',
+            description='Souls Paige icon 6.3 k Vyper icon 5.5 k Last hits Paige icon 24 Denies Paige icon 3',
+            card_id='lane-matchup'
+        )))
+        self.assertIsNone(module.format_highlight(dict(
+            title='Kills vs assists', value='',
+            description='Assists Kills equals assists Solomon icon Abrams icon Infernus icon',
+            card_id='kills-scatter'
+        )))
+
+    def test_extended_highlight_cards_translate_to_chinese(self):
+        # 远距离击杀
+        t1 = module.format_highlight(dict(
+            title='Most long-range kills', value='4',
+            description='kills from long range, the most in the lobby Next most: Holliday, 2.',
+            card_id='kill-range'
+        ))
+        self.assertEqual(t1, '🏹 远距离击杀最多：4次（全场第一；第二名哈雷黛 2次）')
+
+        # 命中率
+        t2 = module.format_highlight(dict(
+            title='Accuracy vs usual', value='54%',
+            description='54% accuracy this game, roughly 1.2x their average of 44% Their average is over 454 games. Also past their average: deaths -42%.',
+            card_id='personal-average'
+        ))
+        self.assertEqual(t2, '🎯 命中率：54%，约为平时44%的1.2倍（原站454场样本）')
+
+        # 重点交火 / 伤害往来
+        t3 = module.format_highlight(dict(
+            title='Damaged most', value='',
+            description='Tetrahedron damaged Abrams icon 31% 10k 31% of total Damaged them Solomon icon 24% 4.5k 24% of total',
+            card_id='damaged-most'
+        ))
+        self.assertEqual(t3, '⚔️ 重点交火：主要输出 亚伯兰 10k（31%）；主要受击 所罗门 4.5k（24%）')
+
+        # 伤害交换比
+        t4 = module.format_highlight(dict(
+            title='Damage traded', value='',
+            description='3 rd 1.76x of 12 players Damage Efficiency (Last 200) 1.76 dealt : taken 992 562',
+            card_id='damage-efficiency'
+        ))
+        self.assertEqual(t4, '⚖️ 伤害交换比：1.76x（全场第3/12，输出/承伤 992:562）')
+
+        # 团队伤害爆发峰值
+        t5 = module.format_highlight(dict(
+            title="Tetrahedron's damage peak", value='',
+            description="27% 0:00 to 3:00 of their team's damage 0:00 to 3:00 Peak share of team damage 27%, 0:00 to 3:00",
+            card_id='peak-window'
+        ))
+        self.assertEqual(t5, '💥 团队伤害爆发峰值：0:00-3:00 贡献全队 27% 伤害')
+
 
 class MultiplayerHighlightTests(unittest.IsolatedAsyncioTestCase):
     async def test_absent_score_tile_keeps_facts_and_shared_cache(self):

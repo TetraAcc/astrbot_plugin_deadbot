@@ -16,5 +16,11 @@
     "type": "string",
     "default": "",
     "hint": "留空使用机器人Python，需安装Playwright。Windows使用已安装的Edge；也可填独立采集环境的python.exe完整路径。"
+  },
+  "render_image": {
+    "description": "战报图片输出",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后 /战报 和 /最新 默认以深色卡片图片发送（更稳定美观，避免长文本被折叠）；若渲染失败自动回退为纯文本。"
   }
 }

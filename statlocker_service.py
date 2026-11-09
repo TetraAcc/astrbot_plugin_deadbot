@@ -265,6 +265,16 @@ class StatLockerService:
 CATEGORY_NAMES = {"DAMAGE DEALER": "输出", "EARLY IMPACT": "前期", "PUSHER": "推进",
                   "TANK": "承伤", "SUPPORT": "辅助", "TEAM FARM BONUS": "经济奖励", "DEATHS": "死亡扣分"}
 
+COMPONENT_ORDER = [
+    "DAMAGE DEALER",
+    "TANK",
+    "SUPPORT",
+    "PUSHER",
+    "EARLY IMPACT",
+    "TEAM FARM BONUS",
+    "DEATHS",
+]
+
 HEROES_ZH = {}
 try:
     _hpath = Path(__file__).with_name("heroes_zh.json")
@@ -272,6 +282,23 @@ try:
         HEROES_ZH = json.loads(_hpath.read_text(encoding="utf-8"))
 except Exception:
     pass
+
+HERO_EN_TO_ZH = {
+    'Infernus': '炽焱', 'Seven': '柒', 'Vindicta': '薇妲', 'Lady Geist': '盖斯特夫人',
+    'Abrams': '亚伯兰', 'Wraith': '灵魅', 'McGinnis': '麦金妮', 'Paradox': '悖论',
+    'Dynamo': '奇能', 'Kelvin': '开尔文', 'Haze': '岚梦', 'Holliday': '哈雷黛',
+    'Bebop': '比波普', 'Calico': '卡厉可', 'Grey Talon': '灰爪', 'Mo & Krill': '莫克双雄',
+    'Shiv': '希弗', 'Ivy': '青藤', 'Kali': 'Kali', 'Warden': '沃督', 'Yamato': '大和',
+    'Lash': '劳什', 'Viscous': '魔液', 'Pocket': '口袋', 'Mirage': '蜃景',
+    'Vyper': '蝰邪', 'Victor': '维克多', 'Paige': '佩吉', 'Celeste': '赛凌',
+    'Solomon': '所罗门', 'Nurse Harrow': '亥芮护士', 'Apollo': '阿波罗',
+    'Rem': '雷姆', 'Doorkeeper': '门侍', 'Silver': '阿紫', 'Mina': '米娜',
+    'Tokamak': '托卡马克', 'Forge': '福吉', 'Cadence': 'Cadence', 'Bomber': 'Bomber',
+}
+
+
+def hero_en_to_zh(name):
+    return HERO_EN_TO_ZH.get(str(name).strip(), str(name).strip())
 
 
 def hero_name(hid):
@@ -314,51 +341,144 @@ def farm_amount(text):
     return text
 
 
+def player_components(player, highlight=None):
+    if highlight and highlight.get('components'):
+        return highlight['components']
+    breakdown = player.get('breakdown', []) if isinstance(player, dict) else []
+    if not breakdown:
+        return {}
+    try:
+        totals, raw_comp = [], {}
+        for part in breakdown:
+            category = part.splitlines()[0].strip().upper()
+            total = re.search(r'Total Points:\s*(-?[\d,.]+)\s*pts', part)
+            subtotal = re.search(r'CATEGORY TOTAL:\s*(-?[\d,.]+)\s*PTS', part, re.I)
+            if not total or not subtotal:
+                return {}
+            totals.append(float(total[1].replace(',', '')))
+            raw_comp[category] = float(subtotal[1].replace(',', ''))
+        score = player.get('score', 0)
+        if totals and len(set(totals)) == 1 and totals[0] > 0 and score > 0:
+            return {k: round(v * score / totals[0], 1) for k, v in raw_comp.items()}
+    except Exception:
+        pass
+    return {}
+
+
 def format_highlight(fact):
-    title = fact['title'].strip().lower()
-    titles = {'most low-hp kills':'低血量击杀最多', 'top healing duo':'最高治疗搭档',
-              'killed every enemy':'击杀过所有敌方英雄', 'souls/min vs usual':'每分钟灵魂对比平时',
-              'damage traded':'伤害交换', 'most ally healing':'队友治疗最多', 'accuracy vs usual':'命中率对比平时', 'mvp lead over next':'领先第二名'}
-    value = fact['value']
-    desc = fact['description']
-    titles.update({'lobby 1st places':'全场第一项', 'elite pair':'社区对比',
-                   'kills vs assists':'击杀与助攻', 'damaged most':'伤害往来',
-                   'head to head':'相邻评分对比', 'kill types':'击杀类型'})
-    if title == 'lobby 1st places':
-        m = re.fullmatch(r'(\d+) stats led (.*?) Ally healing ([\d.k]+) Accuracy ([\d.]+)% CC score ([\d.k]+)', desc)
+    if not isinstance(fact, dict):
+        return None
+    cid = str(fact.get('card_id') or '').strip().lower()
+    title = str(fact.get('title') or '').strip().lower()
+    desc = str(fact.get('description') or '').strip()
+    value = str(fact.get('value') or '').strip()
+
+    # 1. 过滤非文字类卡片（图表刻度、对线表格、散点图及 DOM 节点文本碎片）
+    if cid in {'per-minute-damage', 'lane-matchup', 'kills-scatter', 'mvp-build'}:
+        return None
+    if title in {'damage/min', 'kills vs assists', 'mvp score breakdown'} or 'lane' in title:
+        return None
+    if desc.count('icon') >= 3 or 'equals assists' in desc:
+        return None
+
+    # 2. 全场第一项
+    if title == 'lobby 1st places' or cid == 'lobby-firsts':
+        m = re.search(r'(\d+)\s+stats led (.*?) Ally healing ([\d.k]+) Accuracy ([\d.]+)% CC score ([\d.k]+)', desc)
         if m:
             return f'🥇 全场第一项：{m[1]}项——队友治疗 {m[3]}、命中率 {m[4]}%、控制分 {m[5]}'
-    if title == 'elite pair':
+
+    # 3. 社区对比
+    if title == 'elite pair' or cid == 'elite-pair':
         m = re.fullmatch(r'Top ([\d.]+)% Denies (\d+) You ([\d.]+) Avg Top ([\d.]+)% Crowd Control ([\d.k]+) You ([\d.k]+) Avg', desc)
         if m:
             return f'✨ 原站社区对比：反补前 {m[1]}%（{m[2]}次），控制前 {m[4]}%（{m[5]}）'
-    # Translate confirmed website prose only; never infer awards from statistics.
-    if title == 'killed every enemy':
-        return f"🎯 {titles[title]}：{value}（每位至少一次）"
-    if title == 'most low-hp kills':
-        m = re.search(r'of their (\d+) kills came while they were on (\d+)% health or less',desc)
+
+    # 4. 击杀过所有敌方英雄
+    if title == 'killed every enemy' or cid == 'killed-all':
+        return f'🎯 击杀过所有敌方英雄：{value or "已达成"}（每位至少一次）'
+
+    # 5. 低血量击杀
+    if title == 'most low-hp kills' or cid == 'low-hp-kills':
+        m = re.search(r'of their (\d+) kills came while they were on (\d+)% health or less', desc)
         if m:
-            return f"🔥 {titles[title]}：{m[1]}次击杀中，{value}次发生在自身血量≤{m[2]}%时"
-    if title == 'top healing duo':
-        m = re.search(r'healing to them from (.+?), (\d+)% of the healing they got from teammates',desc)
+            return f'🔥 低血量击杀最多：{m[1]}次击杀中，{value}次发生在自身血量≤{m[2]}%时'
+
+    # 6. 最高治疗搭档
+    if title == 'top healing duo' or cid == 'healing-duo':
+        m = re.search(r'healing to them from (.+?), (\d+)% of the healing they got from teammates', desc)
         if m:
-            hero = {'Nurse Harrow':'护士'}.get(m[1],m[1])
-            return f"💚 {titles[title]}：{hero}提供约{value}治疗，占队友治疗的{m[2]}%"
-    if title == 'most ally healing':
-        m = re.search(r'(\d+)% of their healing went to allies. Next most: (.+?), ([\d.k]+)',desc)
+            hero = hero_en_to_zh(m[1])
+            return f'💚 最高治疗搭档：{hero}提供约{value}治疗，占队友治疗的{m[2]}%'
+
+    # 7. 队友治疗最多
+    if title == 'most ally healing' or cid == 'ally-healing':
+        m = re.search(r'(\d+)% of their healing went to allies\. Next most: (.+?), ([\d.k]+)', desc)
         if m:
-            hero = {'McGinnis':'麦金尼斯'}.get(m[2],m[2])
-            return f"💚 队友治疗最多：约{value}；{m[1]}%治疗用于队友，第二名{hero}约{m[3]}"
-        return f"💚 队友治疗最多：约{value}，全场最高；{desc}"
-    if title == 'accuracy vs usual':
+            hero = hero_en_to_zh(m[2])
+            return f'💚 队友治疗最多：约{value}；{m[1]}%治疗用于队友，第二名{hero}约{m[3]}'
+        return f'💚 队友治疗最多：约{value}，全场最高'
+
+    # 8. 远距离击杀最多
+    if 'long-range kills' in title or cid == 'kill-range':
+        m = re.search(r'(?:(\d+)\s+)?kills from long range,\s*the most in the lobby(?:(?:\.|\s)+Next most:\s*([^,]+),\s*(\d+))?', desc, re.I)
+        if m:
+            cnt = value or m[1] or ''
+            hero = hero_en_to_zh(m[2]) if m[2] else ''
+            next_cnt = m[3]
+            if hero and next_cnt:
+                return f'🏹 远距离击杀最多：{cnt}次（全场第一；第二名{hero} {next_cnt}次）'
+            return f'🏹 远距离击杀最多：{cnt}次（全场第一）'
+
+    # 9. 命中率对比平时
+    if 'accuracy vs usual' in title or (cid == 'personal-average' and 'accuracy' in desc.lower()):
         m = re.search(r'(.+?) accuracy this game, roughly (.+?)x their average of (.+?) Their average is over (\d+) games', desc)
         if m:
-            return f"🎯 命中率：{m[1]}，约为平时{m[3]}的{m[2]}倍（原站{m[4]}场样本）"
-    if title == 'souls/min vs usual':
-        m = re.search(r'(.+?) souls per minute this game, roughly (.+?)x their average of (.+?) Their average is over (\d+) games',desc)
+            return f'🎯 命中率：{m[1]}，约为平时{m[3]}的{m[2]}倍（原站{m[4]}场样本）'
+
+    # 10. 每分钟灵魂对比平时
+    if 'souls/min vs usual' in title or (cid == 'personal-average' and 'souls' in desc.lower()):
+        m = re.search(r'(.+?) souls per minute this game, roughly (.+?)x their average of (.+?) Their average is over (\d+) games', desc)
         if m:
-            return f"🌱 每分钟灵魂：{m[1]}，约为平时{m[3]}的{m[2]}倍（原站{m[4]}场样本）"
-    return f"• {titles.get(title, fact['title'])}：" + (value + '；' if value else '') + desc
+            return f'🌱 每分钟灵魂：{m[1]}，约为平时{m[3]}的{m[2]}倍（原站{m[4]}场样本）'
+
+    # 11. 伤害交换比
+    if 'damage traded' in title or cid == 'damage-efficiency':
+        m = re.search(r'(\d+)\s*(?:st|nd|rd|th)\s+([\d.]+)x\s+of\s+(\d+)\s+players.*?dealt\s*:\s*taken\s+([\d,.]+)\s+([\d,.]+)', desc, re.I)
+        if m:
+            return f'⚖️ 伤害交换比：{m[2]}x（全场第{m[1]}/{m[3]}，输出/承伤 {m[4]}:{m[5]}）'
+        m2 = re.search(r'([\d.]+)x.*?dealt\s*:\s*taken\s+([\d,.]+)\s+([\d,.]+)', desc, re.I)
+        if m2:
+            return f'⚖️ 伤害交换比：{m2[1]}x（输出/承伤 {m2[2]}:{m2[3]}）'
+
+    # 12. 重点交火 / 伤害往来
+    if 'damaged most' in title or cid == 'damaged-most':
+        m1 = re.search(r'damaged\s+([A-Za-z0-9 &]+?)(?:\s+icon)?\s+(\d+%)\s+([\d.kmbKMB]+)', desc, re.I)
+        m2 = re.search(r'Damaged them\s+([A-Za-z0-9 &]+?)(?:\s+icon)?\s+(\d+%)\s+([\d.kmbKMB]+)', desc, re.I)
+        if m1 and m2:
+            h1 = hero_en_to_zh(m1[1])
+            h2 = hero_en_to_zh(m2[1])
+            return f'⚔️ 重点交火：主要输出 {h1} {m1[3]}（{m1[2]}）；主要受击 {h2} {m2[3]}（{m2[2]}）'
+        if m1:
+            h1 = hero_en_to_zh(m1[1])
+            return f'⚔️ 主要伤害目标：对 {h1} 造成 {m1[3]} 伤害（占其受击 {m1[2]}）'
+        if m2:
+            h2 = hero_en_to_zh(m2[1])
+            return f'🛡️ 主要承伤来源：承受 {h2} {m2[3]} 伤害（占个人受击 {m2[2]}）'
+
+    # 13. 团队伤害爆发峰值
+    if 'damage peak' in title or cid == 'peak-window':
+        m = re.search(r"(\d+%)\s+(\d+:\d+)\s+to\s+(\d+:\d+)\s+of\s+(?:their\s+)?team's\s+damage", desc, re.I)
+        if m:
+            return f'💥 团队伤害爆发峰值：{m[2]}-{m[3]} 贡献全队 {m[1]} 伤害'
+
+    # 14. 领先第二名
+    if 'lead over next' in title or cid == 'mvp-lead':
+        m = re.search(r'([+\d.]+)\s*pts?', desc, re.I)
+        if m:
+            return f'🏆 领先第二名：{m[1]}分'
+
+    # 未能结构化翻译为纯正中文的内容直接舍弃，杜绝向用户倾倒英文 DOM 碎片
+    return None
 
 
 def render(data, account, cached, raw_match=None, roster=None, stat_error=None):
@@ -441,18 +561,18 @@ def render(data, account, cached, raw_match=None, roster=None, stat_error=None):
                 lines += ['', '📊 评分构成']
                 if not highlight['components']:
                     lines.append('评分构成暂未获取')
-                parts = [CATEGORY_NAMES[k] + f" {v:+.1f}" for k,v in highlight['components'].items()]
+                parts = [CATEGORY_NAMES[k] + f" {v:+.1f}" for k,v in highlight['components'].items() if k in CATEGORY_NAMES]
                 lines += [' · '.join(parts[i:i+3]) for i in range(0,len(parts),3)]
                 if parts:
                     lines.append('分项为原站总分构成，非各项满分100分。')
                     if highlight.get('component_source') == 'stat_display_formula':
                         lines.append('按原站展示公式换算；points 舍入可能产生约0.1分误差。')
                 lines += ['', '✨ 本局亮点']
-                facts = highlight['facts']
+                facts = [text for f in highlight.get('facts', []) if (text := format_highlight(f))]
                 if not facts:
                     lines.append('原站未展示文字亮点')
-                for fact in facts:
-                    lines.append(format_highlight(fact))
+                for text in facts:
+                    lines.append(text)
             else:
                 lines += ['', '📊 评分构成：暂未获取', '✨ 本局亮点：暂未获取']
             farm = data.get('farm_impact', {}).get(acc)

@@ -25,6 +25,13 @@ from .library import Library
 from .report import parse_roster
 from .scoring import VERSION
 from .statlocker_service import StatLockerService, StatLockerError, render as render_statlocker
+try:
+    from .card_renderer import render_report_image
+except ImportError:
+    try:
+        from card_renderer import render_report_image
+    except ImportError:
+        render_report_image = None
 
 
 class DeadBot(Star):
@@ -587,14 +594,41 @@ class DeadBot(Star):
                                 pass
             except Exception:
                 pass
+        data = None
+        stat_error = None
         try:
             data, cached = await self.statlocker.get(mid, focus_account, refresh=refresh == "刷新")
             report = render_statlocker(data, focus_account, cached, raw_match=raw_match, roster=roster)
         except StatLockerError as exc:
+            stat_error = str(exc)
             if raw_match is not None:
-                report = render_statlocker(None, focus_account, False, raw_match=raw_match, roster=roster, stat_error=str(exc))
+                report = render_statlocker(None, focus_account, False, raw_match=raw_match, roster=roster, stat_error=stat_error)
             else:
                 report = f"{exc}\n本次未取得 StatLocker 评分，不使用本地评分替代。"
+
+        renderer = globals().get("render_report_image")
+        config_render = True
+        if hasattr(self, "config") and hasattr(self.config, "get"):
+            config_render = bool(self.config.get("render_image", True))
+        elif isinstance(getattr(self, "config", None), dict):
+            config_render = bool(self.config.get("render_image", True))
+
+        if renderer and config_render and hasattr(event, "image_result") and (data or raw_match):
+            try:
+                img_path = await asyncio.to_thread(
+                    renderer,
+                    data,
+                    focus_account,
+                    raw_match=raw_match,
+                    roster=roster,
+                    stat_error=stat_error,
+                )
+                if img_path:
+                    yield event.image_result(img_path)
+                    return
+            except Exception:
+                pass
+
         for page in text_pages(report, "战报"):
             yield event.plain_result(page)
 
