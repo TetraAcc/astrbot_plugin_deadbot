@@ -258,8 +258,8 @@ def _render(data, account, raw_match, roster, stat_error):
     fs   = _F(int(12 * S))
     fh   = _F(int(16 * S), True)
     fn   = _F(int(13 * S))
-    fsc  = _F(int(22 * S), True)   # Score number (slightly toned down)
-    fg   = _F(int(18 * S), True)   # Grade letter (slightly bigger for balance)
+    fsc  = _F(int(20 * S), True)   # Score number
+    fg   = _F(int(20 * S), True)   # Grade letter (same size as score)
     fr   = _F(int(13 * S))
     fl   = _F(int(12 * S))
     fsec = _F(int(13 * S), True)
@@ -307,11 +307,20 @@ def _render(data, account, raw_match, roster, stat_error):
         clr = WIN_C if match_win else LOSE_C
         bg_clr = (20, 50, 35) if match_win else (60, 25, 25)
         lw = draw.textlength(lbl, font=fs)
+        pad_h = int(10 * S)  # horizontal padding
+        badge_h = int(20 * S)
         bx2 = cx + cw
-        bx1 = bx2 - lw - int(16 * S)
-        draw.rounded_rectangle([(bx1, y + int(4 * S)), (bx2, y + int(24 * S))],
+        bx1 = bx2 - lw - pad_h * 2
+        by1 = y + int(4 * S)
+        by2 = by1 + badge_h
+        draw.rounded_rectangle([(bx1, by1), (bx2, by2)],
                                radius=int(4 * S), fill=bg_clr, outline=clr, width=max(1, S))
-        draw.text((bx1 + int(8 * S), y + int(6 * S)), lbl, font=fs, fill=clr)
+        # True center: use bbox for precise vertical centering
+        bbox = draw.textbbox((0, 0), lbl, font=fs)
+        th = bbox[3] - bbox[1]
+        tx = bx1 + (bx2 - bx1 - lw) // 2
+        ty = by1 + (badge_h - th) // 2 - bbox[1]
+        draw.text((tx, ty), lbl, font=fs, fill=clr)
 
     y += int(30 * S)
     if sub_parts:
@@ -352,7 +361,7 @@ def _render(data, account, raw_match, roster, stat_error):
             g_clr = GRADE_CLR.get(grade, T1)
             draw.text((cx + IP + int(4 * S), cy), sc_str, font=fsc, fill=g_clr)
             sw = draw.textlength(sc_str, font=fsc)
-            draw.text((cx + IP + int(4 * S) + sw + int(6 * S), cy + int(5 * S)), grade, font=fg, fill=g_clr)
+            draw.text((cx + IP + int(4 * S) + sw + int(6 * S), cy), grade, font=fg, fill=g_clr)
             gw = draw.textlength(grade, font=fg)
             rank = re.match(r"^\s*(\d+)", str(ps.get('rank', '')))
             rank_str = f"全场第 {rank[1]}/12" if rank else ""
