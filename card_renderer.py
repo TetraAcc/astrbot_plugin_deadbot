@@ -51,6 +51,7 @@ PX     = 18 * SCALE        # Outer horizontal padding: 36 px
 PY     = 16 * SCALE        # Outer vertical padding: 32 px
 R      = 8 * SCALE         # Card corner radius: 16 px
 IP     = 14 * SCALE        # Card inner padding: 28 px
+ACCENT_W = 4               # Left accent bar base width (px before scale)
 
 BG      = (15, 23, 42)      # Slate 900
 CARD_BG = (30, 41, 59)      # Slate 800
@@ -59,6 +60,7 @@ DIV     = (40, 53, 72)      # Subtle divider
 T1      = (248, 250, 252)   # Slate 50 (primary text)
 T2      = (203, 213, 225)   # Slate 300 (secondary text)
 T3      = (148, 163, 184)   # Slate 400 (labels / captions)
+T_HL    = (170, 185, 205)   # Slightly brighter than T3 for highlights
 
 WIN_C   = (34, 197, 94)     # Green 500
 LOSE_C  = (239, 68, 68)     # Red 500
@@ -256,8 +258,8 @@ def _render(data, account, raw_match, roster, stat_error):
     fs   = _F(int(12 * S))
     fh   = _F(int(16 * S), True)
     fn   = _F(int(13 * S))
-    fsc  = _F(int(24 * S), True)
-    fg   = _F(int(16 * S), True)
+    fsc  = _F(int(22 * S), True)   # Score number (slightly toned down)
+    fg   = _F(int(18 * S), True)   # Grade letter (slightly bigger for balance)
     fr   = _F(int(13 * S))
     fl   = _F(int(12 * S))
     fsec = _F(int(13 * S), True)
@@ -328,8 +330,11 @@ def _render(data, account, raw_match, roster, stat_error):
         # Card container with colored left accent bar
         draw.rounded_rectangle([(cx, y), (cx + cw, y + card_h)], radius=R,
                                fill=CARD_BG, outline=CARD_BD, width=max(1, S))
-        draw.rounded_rectangle([(cx, y + int(6 * S)), (cx + int(3 * S), y + card_h - int(6 * S))],
-                               radius=int(2 * S), fill=accent)
+        bar_w = ACCENT_W * S
+        bar_margin = int(6 * S)
+        draw.rounded_rectangle(
+            [(cx, y + bar_margin), (cx + bar_w, y + card_h - bar_margin)],
+            radius=int(2 * S), fill=accent)
         cy = y + int(10 * S)
 
         # 1. Hero & Name (Left)
@@ -396,7 +401,7 @@ def _render(data, account, raw_match, roster, stat_error):
                 sup_str = "—"
 
             left_x = cx + IP + int(4 * S)
-            right_x = mx + int(10 * S)
+            right_x = mx + int(2 * S)
 
             def draw_stat(x, y, label, val):
                 draw.text((x, y), label, font=fl, fill=T3)
@@ -437,11 +442,13 @@ def _render(data, account, raw_match, roster, stat_error):
                 comp.items(),
                 key=lambda x: COMPONENT_ORDER.index(x[0]) if x[0] in COMPONENT_ORDER else 99
             )
+            dot_r = int(4 * S)  # Larger dots for better visibility
             for cat, val in ordered_comp:
                 short_name = CAT_SHORT.get(cat, CATEGORY_NAMES.get(cat, cat))
                 clr = CAT_CLR.get(cat, T3)
-                draw.ellipse((rx, cy + int(4 * S), rx + int(6 * S), cy + int(10 * S)), fill=clr)
-                rx += int(9 * S)
+                dot_y = cy + int(4 * S)
+                draw.ellipse((rx, dot_y, rx + dot_r, dot_y + dot_r), fill=clr)
+                rx += dot_r + int(3 * S)
                 txt = f"{short_name} {val:+.1f}"
                 draw.text((rx, cy), txt, font=fl, fill=T2)
                 rx += draw.textlength(txt, font=fl) + int(7 * S)
@@ -459,10 +466,18 @@ def _render(data, account, raw_match, roster, stat_error):
             cy += int(5 * S)
             draw.text((cx + IP + int(4 * S), cy), "本局亮点", font=fsec, fill=T2)
             cy += int(17 * S)
+            bullet_clr = accent  # Use card accent color for bullets
             for text in facts:
                 clean_text = _strip_emoji(text)
-                for ln in _wrap(draw, "◆ " + clean_text, fhl, max_tw):
-                    draw.text((cx + IP + int(4 * S), cy), ln, font=fhl, fill=T3)
+                wrapped = _wrap(draw, "◆ " + clean_text, fhl, max_tw)
+                for i, ln in enumerate(wrapped):
+                    if i == 0:
+                        # Draw bullet in accent color, rest in brighter T_HL
+                        draw.text((cx + IP + int(4 * S), cy), "◆", font=fhl, fill=bullet_clr)
+                        bw = draw.textlength("◆ ", font=fhl)
+                        draw.text((cx + IP + int(4 * S) + bw, cy), ln[2:], font=fhl, fill=T_HL)
+                    else:
+                        draw.text((cx + IP + int(4 * S), cy), ln, font=fhl, fill=T_HL)
                     cy += int(15 * S)
                 cy += int(2 * S)
 
@@ -473,20 +488,29 @@ def _render(data, account, raw_match, roster, stat_error):
             cy += int(5 * S)
             FL = {'LOW FARM': '低资源', 'MEDIUM FARM': '中等资源',
                   'HIGH FARM': '高资源', 'HIGHEST FARM': '最高资源'}
-            farm_text = (
-                FL.get(farm_data['label'], farm_data['label'])
-                + " · 发育 " + farm_amount(farm_data['farm']) + "灵魂"
+            farm_label = FL.get(farm_data['label'], farm_data['label'])
+            farm_rest = (
+                " · 发育 " + farm_amount(farm_data['farm']) + "灵魂"
                 + f" · 奖励 {farm_data['bonus']}"
                 + f" · {farm_data['before_grade']} → {ps.get('grade', '?')}"
             )
-            draw.text((cx + IP + int(4 * S), cy), farm_text, font=fl, fill=T3)
+            # Farm label in a tinted color based on tier
+            farm_colors = {
+                'LOW FARM': (148, 163, 184), 'MEDIUM FARM': (203, 213, 225),
+                'HIGH FARM': (34, 197, 94), 'HIGHEST FARM': (245, 158, 11),
+            }
+            f_clr = farm_colors.get(farm_data['label'], T3)
+            draw.text((cx + IP + int(4 * S), cy), farm_label, font=fl, fill=f_clr)
+            fl_w = draw.textlength(farm_label, font=fl)
+            draw.text((cx + IP + int(4 * S) + fl_w, cy), farm_rest, font=fl, fill=T3)
             cy += int(16 * S)
 
         y += card_h + int(10 * S)
 
-    # Footer
+    # Footer (centered)
     src = "数据来源: Deadlock API + Statlocker.gg  ·  Powered by Statlocker"
-    draw.text((cx, y + int(2 * S)), src, font=fft, fill=T3)
+    src_w = draw.textlength(src, font=fft)
+    draw.text((cx + (cw - src_w) // 2, y + int(2 * S)), src, font=fft, fill=T3)
 
     # Save to temp file
     fd, path = tempfile.mkstemp(prefix="deadbot_report_", suffix=".png")
