@@ -45,12 +45,12 @@ except ImportError:
 # Ensures perfect 1080p full-screen clarity and crisp QQ chat bubble previews.
 
 SCALE  = 2
-BASE_W = 560
-W      = BASE_W * SCALE    # 1120 px
-PX     = 18 * SCALE        # Outer horizontal padding: 36 px
-PY     = 16 * SCALE        # Outer vertical padding: 32 px
+BASE_W = 480
+W      = BASE_W * SCALE    # 960 px
+PX     = 14 * SCALE        # Outer horizontal padding: 28 px
+PY     = 14 * SCALE        # Outer vertical padding: 28 px
 R      = 8 * SCALE         # Card corner radius: 16 px
-IP     = 14 * SCALE        # Card inner padding: 28 px
+IP     = 12 * SCALE        # Card inner padding: 24 px
 ACCENT_W = 4               # Left accent bar base width (px before scale)
 
 BG      = (15, 23, 42)      # Slate 900
@@ -186,9 +186,27 @@ def _player_h(md, acc: str, sl: dict, api: dict, data, info: dict, fhl, max_tw: 
     if pa:
         h += 4 * 18 + 4
 
-    # Single-line 6/7-dimension breakdown
+    # Score breakdown (may wrap to 2 lines if needed)
     if comp:
-        h += 6 + 17 + 16
+        h += 6 + 17  # divider + section header
+        dot_r = int(3.5 * SCALE)
+        dot_gap = int(2 * SCALE)
+        item_gap = int(3.5 * SCALE)
+        rx = 0
+        comp_lines = 1
+        ordered = sorted(
+            comp.items(),
+            key=lambda x: COMPONENT_ORDER.index(x[0]) if x[0] in COMPONENT_ORDER else 99
+        )
+        for cat, val in ordered:
+            short_name = CAT_SHORT.get(cat, CATEGORY_NAMES.get(cat, cat))
+            txt = f"{short_name} {val:+.1f}"
+            item_w = dot_r + dot_gap + md.textlength(txt, font=fhl) + item_gap
+            if rx + item_w > max_tw and rx > 0:
+                comp_lines += 1
+                rx = 0
+            rx += item_w
+        h += 16 * comp_lines
     elif ps and data:
         h += 6 + 17
 
@@ -254,24 +272,24 @@ def _render(data, account, raw_match, roster, stat_error):
 
     # Scaled font definitions for 2x Retina rendering
     S = SCALE
-    ft   = _F(int(20 * S), True)
-    fs   = _F(int(12 * S))
-    fh   = _F(int(16 * S), True)
-    fn   = _F(int(13 * S))
-    fsc  = _F(int(20 * S), True)   # Score number
-    fg   = _F(int(20 * S), True)   # Grade letter (same size as score)
-    fr   = _F(int(13 * S))
-    fl   = _F(int(12 * S))
-    fsec = _F(int(13 * S), True)
-    fhl  = _F(int(11.5 * S))
-    fft  = _F(int(11 * S))
+    ft   = _F(int(18 * S), True)    # Title
+    fs   = _F(int(11 * S))          # Subtitle / badge
+    fh   = _F(int(14 * S), True)    # Hero name
+    fn   = _F(int(12 * S))          # Player name / KDA
+    fsc  = _F(int(18 * S), True)    # Score number
+    fg   = _F(int(18 * S), True)    # Grade letter (same as score)
+    fr   = _F(int(12 * S))          # Stat values
+    fl   = _F(int(11 * S))          # Stat labels
+    fsec = _F(int(12 * S), True)    # Section headers
+    fhl  = _F(int(10.5 * S))        # Highlight text
+    fft  = _F(int(10 * S))          # Footer
 
     _m = ImageDraw.Draw(Image.new("RGB", (1, 1)))
 
     cx = PX
     cw = W - 2 * PX
     mx = cx + cw // 2
-    max_tw = cw - 2 * IP - int(16 * S)
+    max_tw = cw - 2 * IP - int(4 * S)
 
     # Calculate heights
     p_heights = [_player_h(_m, a, sl, api, data, info, fhl, max_tw) for a in targets]
@@ -411,11 +429,11 @@ def _render(data, account, raw_match, roster, stat_error):
 
             left_x = cx + IP + int(4 * S)
             right_x = mx + int(2 * S)
+            stat_lbl_w = int(54 * S)
 
             def draw_stat(x, y, label, val):
                 draw.text((x, y), label, font=fl, fill=T3)
-                lw = draw.textlength(label, font=fl)
-                draw.text((x + lw, y), val, font=fr, fill=T1)
+                draw.text((x + stat_lbl_w, y), val, font=fr, fill=T1)
 
             # Row 1: 英雄伤害 vs 承受伤害
             draw_stat(left_x, cy, "英雄伤害 ", _n(last.get('player_damage')))
@@ -447,20 +465,30 @@ def _render(data, account, raw_match, roster, stat_error):
             cy += int(17 * S)
 
             rx = cx + IP + int(4 * S)
+            row_start = rx
+            max_rx = cx + cw - IP
             ordered_comp = sorted(
                 comp.items(),
                 key=lambda x: COMPONENT_ORDER.index(x[0]) if x[0] in COMPONENT_ORDER else 99
             )
-            dot_r = int(4 * S)  # Larger dots for better visibility
+            dot_r = int(3.5 * S)
+            dot_gap = int(2 * S)
+            item_gap = int(3.5 * S)
             for cat, val in ordered_comp:
                 short_name = CAT_SHORT.get(cat, CATEGORY_NAMES.get(cat, cat))
                 clr = CAT_CLR.get(cat, T3)
+                txt = f"{short_name} {val:+.1f}"
+                tw = draw.textlength(txt, font=fhl)
+                item_w = dot_r + dot_gap + tw + item_gap
+                # Wrap to next line if overflow
+                if rx + item_w > max_rx and rx > row_start:
+                    cy += int(16 * S)
+                    rx = row_start
                 dot_y = cy + int(4 * S)
                 draw.ellipse((rx, dot_y, rx + dot_r, dot_y + dot_r), fill=clr)
-                rx += dot_r + int(3 * S)
-                txt = f"{short_name} {val:+.1f}"
-                draw.text((rx, cy), txt, font=fl, fill=T2)
-                rx += draw.textlength(txt, font=fl) + int(7 * S)
+                rx += dot_r + dot_gap
+                draw.text((rx, cy), txt, font=fhl, fill=T2)
+                rx += tw + item_gap
             cy += int(16 * S)
         elif ps and data:
             draw.line([(cx + IP, cy), (cx + cw - IP, cy)], fill=DIV, width=max(1, S))
