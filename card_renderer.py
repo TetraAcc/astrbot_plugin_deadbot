@@ -11,8 +11,11 @@ import os
 import re
 import tempfile
 import time
+from datetime import datetime, timezone, timedelta
 from functools import lru_cache
 from pathlib import Path
+
+CHINA_TIME = timezone(timedelta(hours=8))
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -551,6 +554,203 @@ def _render(data, account, raw_match, roster, stat_error):
 
     # Save to temp file
     fd, path = tempfile.mkstemp(prefix="deadbot_report_", suffix=".png")
+    os.close(fd)
+    img.save(path, format="PNG", optimize=True)
+    return path
+
+
+# ─── Recent Matches Card Renderer ──────────────────────────
+
+def render_recent_matches_image(account: str, name: str, matches: list[dict]):
+    """Render a player's recent matches summary as a dark-theme PNG card.
+
+    Returns:
+        File path to generated PNG, or None if rendering fails or matches empty.
+    """
+    if Image is None or not matches:
+        return None
+    try:
+        return _render_recent_matches(account, name, matches)
+    except Exception:
+        return None
+
+
+def _render_recent_matches(account: str, name: str, matches: list[dict]):
+    S = SCALE
+    ft   = _F(int(18 * S), True)    # Title
+    fs   = _F(int(11 * S))          # Subtitle / badge
+    fh   = _F(int(14 * S), True)    # Hero name
+    fn   = _F(int(12 * S), True)    # KDA
+    fr   = _F(int(11.5 * S))        # Secondary stats
+    fl   = _F(int(10.5 * S))        # Match ID / Labels
+    fg   = _F(int(15 * S), True)    # Grade
+    fft  = _F(int(10 * S))          # Footer
+
+    cx = PX
+    cw = W - 2 * PX
+    card_h = int(68 * S)
+    gap = int(8 * S)
+
+    sub_text = f"Account ID: {account} · 最近 {len(matches)} 场已收录对局"
+    hdr_h = int(38 * S)
+    footer_h = int(36 * S)
+    total_h = PY + hdr_h + len(matches) * (card_h + gap) + footer_h + PY
+
+    img = Image.new("RGB", (W, total_h), BG)
+    draw = ImageDraw.Draw(img)
+
+    y = PY
+
+    # 1. Header
+    title = f"最近战绩 · {name}"
+    draw.text((cx, y + int(2 * S)), title, font=ft, fill=T1)
+
+    # Winrate pill
+    wins = sum(1 for m in matches if m.get("outcome") == 1)
+    losses = sum(1 for m in matches if m.get("outcome") == 2)
+    win_rate = (wins / len(matches)) if matches else 0
+    pill_text = f"{wins}胜 {losses}负 ({win_rate:.0%})"
+    pill_clr = WIN_C if win_rate >= 0.5 else LOSE_C
+    pill_bg = (20, 50, 35) if win_rate >= 0.5 else (60, 25, 25)
+
+    pw = draw.textlength(pill_text, font=fs)
+    pad_h = int(10 * S)
+    badge_h = int(20 * S)
+    bx2 = cx + cw
+    bx1 = bx2 - pw - pad_h * 2
+    by1 = y + int(4 * S)
+    by2 = by1 + badge_h
+    draw.rounded_rectangle([(bx1, by1), (bx2, by2)], radius=int(4 * S), fill=pill_bg, outline=pill_clr, width=max(1, S))
+    bbox = draw.textbbox((0, 0), pill_text, font=fs)
+    th = bbox[3] - bbox[1]
+    tx = bx1 + (bx2 - bx1 - pw) // 2
+    ty = by1 + (badge_h - th) // 2 - bbox[1]
+    draw.text((tx, ty), pill_text, font=fs, fill=pill_clr)
+
+    y += int(26 * S)
+    draw.text((cx, y), sub_text, font=fs, fill=T3)
+    y += int(16 * S)
+    draw.line([(cx, y), (cx + cw, y)], fill=DIV, width=max(1, S))
+    y += int(8 * S)
+
+    # 2. Match Cards
+    MODES_MAP = {1: "标准", 4: "排位", 2: "街机", 3: "人机"}
+
+    for m in matches:
+        outcome = m.get("outcome")
+        is_win = (outcome == 1)
+        is_loss = (outcome == 2)
+
+        if is_win:
+            accent = WIN_C
+            out_label = "胜"
+            out_bg = (20, 50, 35)
+        elif is_loss:
+            accent = LOSE_C
+            out_label = "负"
+            out_bg = (60, 25, 25)
+        else:
+            accent = T3
+            out_label = "平"
+            out_bg = (40, 50, 60)
+
+        # Card container
+        draw.rounded_rectangle([(cx, y), (cx + cw, y + card_h)], radius=R, fill=CARD_BG, outline=CARD_BD, width=max(1, S))
+
+        # Left colored accent strip
+        bar_w = ACCENT_W * S
+        draw.rounded_rectangle(
+            [(cx, y + int(4 * S)), (cx + bar_w, y + card_h - int(4 * S))],
+            radius=int(2 * S), fill=accent
+        )
+
+        cy = y + int(8 * S)
+        content_x = cx + IP + int(4 * S)
+
+        # Row 1: Mini outcome pill + Hero Name + Mode Tag | Time
+        ow = draw.textlength(out_label, font=fl)
+        draw.rounded_rectangle([(content_x, cy), (content_x + ow + int(8 * S), cy + int(14 * S))],
+                               radius=int(3 * S), fill=out_bg, outline=accent, width=1)
+        bbox_o = draw.textbbox((0, 0), out_label, font=fl)
+        toh = bbox_o[3] - bbox_o[1]
+        tox = content_x + (ow + int(8 * S) - ow) // 2
+        toy = cy + (int(14 * S) - toh) // 2 - bbox_o[1]
+        draw.text((tox, toy), out_label, font=fl, fill=accent)
+
+        hname = hero_name(m.get("hero_id")) if m.get("hero_id") else "未知英雄"
+        hx = content_x + ow + int(14 * S)
+        draw.text((hx, cy - int(1 * S)), hname, font=fh, fill=T1)
+        hw = draw.textlength(hname, font=fh)
+
+        mm = m.get("match_mode")
+        mode_str = MODES_MAP.get(mm, "常规")
+        mx = hx + hw + int(8 * S)
+        draw.text((mx, cy + int(1 * S)), f"· {mode_str}", font=fl, fill=T3)
+
+        stamp = m.get("start_time")
+        dt_str = datetime.fromtimestamp(stamp, CHINA_TIME).strftime("%m-%d %H:%M") if stamp else "时间未知"
+        tw = draw.textlength(dt_str, font=fl)
+        draw.text((cx + cw - IP - tw, cy + int(1 * S)), dt_str, font=fl, fill=T3)
+
+        cy += int(20 * S)
+
+        # Row 2: KDA, Duration, Souls | Score & Grade
+        k = m.get("kills", 0) or 0
+        d = m.get("deaths", 0) or 0
+        a = m.get("assists", 0) or 0
+        kda_str = f"{k} / {d} / {a}"
+        draw.text((content_x, cy), kda_str, font=fn, fill=T1)
+        kw = draw.textlength(kda_str, font=fn)
+
+        dur = m.get("duration_s")
+        dur_str = f"{dur // 60:02d}:{dur % 60:02d}" if type(dur) is int and dur > 0 else ""
+        souls = m.get("net_worth")
+        soul_str = f"{souls/1000:.1f}k 灵魂" if type(souls) in (int, float) and souls > 0 else ""
+
+        mid_parts = [p for p in (dur_str, soul_str) if p]
+        if mid_parts:
+            mid_text = " · " + " · ".join(mid_parts)
+            draw.text((content_x + kw, cy + int(1 * S)), mid_text, font=fr, fill=T2)
+
+        score = m.get("score")
+        grade = m.get("grade")
+        if type(score) in (int, float) and grade:
+            g_clr = GRADE_CLR.get(grade, T1)
+            grade_str = f"{score:.1f} {grade}"
+            gw = draw.textlength(grade_str, font=fg)
+            draw.text((cx + cw - IP - gw, cy - int(1 * S)), grade_str, font=fg, fill=g_clr)
+        else:
+            lh = m.get("last_hits")
+            dn = m.get("denies")
+            if type(lh) is int:
+                lh_str = f"补刀 {lh}/{dn if dn is not None else 0}"
+                lhw = draw.textlength(lh_str, font=fl)
+                draw.text((cx + cw - IP - lhw, cy + int(1 * S)), lh_str, font=fl, fill=T3)
+
+        cy += int(18 * S)
+
+        # Row 3: Match ID & Copy Prompt
+        mid_str = f"比赛 ID: {m.get('match_id', '?')}"
+        draw.text((content_x, cy), mid_str, font=fl, fill=T3)
+
+        copy_tip = f"/战报 {m.get('match_id', '?')}"
+        cw_tip = draw.textlength(copy_tip, font=fl)
+        draw.text((cx + cw - IP - cw_tip, cy), copy_tip, font=fl, fill=(100, 116, 139))
+
+        y += card_h + gap
+
+    # 3. Footer
+    y += int(4 * S)
+    tip = "提示：发送 /战报 <比赛ID> 可查看对应单局的详细评分与伤害构成"
+    tip_w = draw.textlength(tip, font=fft)
+    draw.text((cx + (cw - tip_w) // 2, y), tip, font=fft, fill=T3)
+
+    y += int(14 * S)
+    src = "DeadBot 战绩追踪 · 数据来源 Deadlock API"
+    src_w = draw.textlength(src, font=fft)
+    draw.text((cx + (cw - src_w) // 2, y), src, font=fft, fill=(100, 116, 139))
+
+    fd, path = tempfile.mkstemp(prefix="deadbot_recent_", suffix=".png")
     os.close(fd)
     img.save(path, format="PNG", optimize=True)
     return path

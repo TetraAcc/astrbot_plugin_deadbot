@@ -81,6 +81,65 @@ class Library:
         lines.append('复制比赛ID：/战报 比赛ID')
         return '\n'.join(lines)
 
+    def recent_matches_data(self, account, limit=5):
+        """Query recent matches structured data for card rendering.
+
+        Returns:
+            list[dict] of match details, including hero, KDA, outcome, duration,
+            and cached StatLocker score/grade if available.
+        """
+        db = self.connect()
+        try:
+            query = "SELECT match_id,start_time,data FROM player_history WHERE account=?"
+            params = [str(account)]
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='deadlock_records'").fetchone():
+                query += " UNION ALL SELECT match_id,start_time,data FROM deadlock_records WHERE account=?"
+                params.append(str(account))
+            sql = f"SELECT match_id,MAX(start_time),data FROM ({query}) GROUP BY match_id ORDER BY MAX(start_time) DESC,CAST(match_id AS INTEGER) DESC LIMIT ?"
+            params.append(limit)
+            rows = db.execute(sql, params).fetchall()
+        finally:
+            db.close()
+        if not rows:
+            return []
+
+        cache_dir = self.path.parent / "statlocker_cache" if hasattr(self, "path") and self.path else None
+        matches = []
+        for mid, stamp, raw in rows:
+            d = json.loads(raw) if raw else {}
+            item = {
+                "match_id": str(mid),
+                "start_time": stamp,
+                "hero_id": d.get("hero_id"),
+                "kills": d.get("player_kills", 0),
+                "deaths": d.get("player_deaths", 0),
+                "assists": d.get("player_assists", 0),
+                "outcome": d.get("player_match_outcome"),
+                "duration_s": d.get("match_duration_s"),
+                "net_worth": d.get("net_worth"),
+                "last_hits": d.get("last_hits"),
+                "denies": d.get("denies"),
+                "match_mode": d.get("match_mode"),
+                "game_mode": d.get("game_mode"),
+                "score": None,
+                "grade": None,
+            }
+            if cache_dir and cache_dir.exists():
+                sl_file = cache_dir / f"{mid}.json"
+                if sl_file.exists():
+                    try:
+                        sl_d = json.loads(sl_file.read_text(encoding="utf-8"))
+                        sl_data = sl_d.get("data", sl_d)
+                        for p in sl_data.get("players", []):
+                            if str(p.get("account_id")) == str(account):
+                                item["score"] = p.get("score")
+                                item["grade"] = p.get("grade")
+                                break
+                    except Exception:
+                        pass
+            matches.append(item)
+        return matches
+
     def import_history(self, account, payload):
         if not isinstance(payload, list):
             raise ValueError("历史接口返回格式异常")  # noqa: TRY004 - preserve command validation

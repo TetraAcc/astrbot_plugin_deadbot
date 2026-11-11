@@ -26,12 +26,13 @@ from .report import parse_roster
 from .scoring import VERSION
 from .statlocker_service import StatLockerService, StatLockerError, render as render_statlocker
 try:
-    from .card_renderer import render_report_image
+    from .card_renderer import render_report_image, render_recent_matches_image
 except ImportError:
     try:
-        from card_renderer import render_report_image
+        from card_renderer import render_report_image, render_recent_matches_image
     except ImportError:
         render_report_image = None
+        render_recent_matches_image = None
 
 
 class DeadBot(Star):
@@ -404,7 +405,27 @@ class DeadBot(Star):
             roster = parse_roster(self.config.get("roster", []))
             account = await self._resolve_account(event, name, roster)
             status = await self.latest_history.refresh(account)
-            text = await asyncio.to_thread(self.library.recent_report, account, roster[account])
+            player_name = roster.get(account, f"玩家 {account}")
+
+            recent_renderer = globals().get("render_recent_matches_image")
+            if (
+                self.config.get("render_image", True)
+                and recent_renderer is not None
+                and hasattr(event, "image_result")
+            ):
+                try:
+                    matches = await asyncio.to_thread(self.library.recent_matches_data, account)
+                    if matches:
+                        img_path = await asyncio.to_thread(
+                            recent_renderer, account, player_name, matches
+                        )
+                        if img_path:
+                            yield event.image_result(img_path)
+                            return
+                except Exception as exc:
+                    logger.warning(f"Recent matches image render failed, falling back to text: {exc}")
+
+            text = await asyncio.to_thread(self.library.recent_report, account, player_name)
             text += "\n" + status
         except ValueError as exc:
             text = str(exc)

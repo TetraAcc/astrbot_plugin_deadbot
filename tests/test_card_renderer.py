@@ -20,6 +20,7 @@ if PACKAGE not in sys.modules:
 
 card_renderer = importlib.import_module(PACKAGE + ".card_renderer")
 render_report_image = card_renderer.render_report_image
+render_recent_matches_image = card_renderer.render_recent_matches_image
 _wrap = card_renderer._wrap
 _strip_emoji = card_renderer._strip_emoji
 _n = card_renderer._n
@@ -255,3 +256,144 @@ class CardRendererIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(len(event.images), 0)
             self.assertTrue(any("StatLocker 战报" in t for t in event.texts))
+
+    async def test_recent_yields_image_when_enabled(self):
+        main_mod = importlib.import_module(PACKAGE + ".main")
+        DeadBot = main_mod.DeadBot
+
+        class MockEvent:
+            def __init__(self):
+                self.images = []
+                self.texts = []
+
+            def plain_result(self, text):
+                self.texts.append(text)
+                return {"type": "text", "content": text}
+
+            def image_result(self, path):
+                self.images.append(path)
+                return {"type": "image", "path": path}
+
+        sample_matches = [
+            {
+                "match_id": "1001",
+                "start_time": 1700000000,
+                "hero_id": 1,
+                "kills": 10,
+                "deaths": 2,
+                "assists": 15,
+                "outcome": 1,
+                "duration_s": 1800,
+                "net_worth": 30000,
+                "score": 75.0,
+                "grade": "A",
+            }
+        ]
+
+        bot = DeadBot(Mock(), {"roster": ["1=测试玩家"], "render_image": True})
+        bot.latest_history = Mock(refresh=AsyncMock(return_value="已刷新"))
+        bot.library = Mock(
+            recent_matches_data=Mock(return_value=sample_matches),
+            recent_report=Mock(return_value="文本战绩"),
+        )
+        bot._resolve_account = AsyncMock(return_value="1")
+
+        event = MockEvent()
+        async for res in bot.recent(event, name="测试玩家"):
+            pass
+
+        self.assertEqual(len(event.images), 1)
+        self.images_to_clean.append(event.images[0])
+        self.assertTrue(os.path.exists(event.images[0]))
+
+    async def test_recent_yields_text_when_disabled(self):
+        main_mod = importlib.import_module(PACKAGE + ".main")
+        DeadBot = main_mod.DeadBot
+
+        class MockEvent:
+            def __init__(self):
+                self.images = []
+                self.texts = []
+
+            def plain_result(self, text):
+                self.texts.append(text)
+                return {"type": "text", "content": text}
+
+            def image_result(self, path):
+                self.images.append(path)
+                return {"type": "image", "path": path}
+
+        bot = DeadBot(Mock(), {"roster": ["1=测试玩家"], "render_image": False})
+        bot.latest_history = Mock(refresh=AsyncMock(return_value="已刷新"))
+        bot.library = Mock(
+            recent_matches_data=Mock(return_value=[]),
+            recent_report=Mock(return_value="文本战绩"),
+        )
+        bot._resolve_account = AsyncMock(return_value="1")
+
+        event = MockEvent()
+        async for res in bot.recent(event, name="测试玩家"):
+            pass
+
+        self.assertEqual(len(event.images), 0)
+        self.assertTrue(any("文本战绩" in t for t in event.texts))
+
+
+class RecentMatchesRendererUnitTests(unittest.TestCase):
+    def setUp(self):
+        self.images = []
+
+    def tearDown(self):
+        for p in self.images:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+    def test_render_recent_matches_valid_png(self):
+        matches = [
+            {
+                "match_id": "133654220",
+                "start_time": 1794145771,
+                "hero_id": 67,
+                "kills": 7,
+                "deaths": 3,
+                "assists": 15,
+                "outcome": 1,
+                "duration_s": 2009,
+                "net_worth": 35750,
+                "last_hits": 114,
+                "denies": 3,
+                "match_mode": 4,
+                "score": 65.4,
+                "grade": "B",
+            },
+            {
+                "match_id": "133634716",
+                "start_time": 1794143163,
+                "hero_id": 20,
+                "kills": 2,
+                "deaths": 8,
+                "assists": 10,
+                "outcome": 2,
+                "duration_s": 2469,
+                "net_worth": 37660,
+                "last_hits": 131,
+                "denies": 1,
+                "match_mode": 4,
+                "score": None,
+                "grade": None,
+            },
+        ]
+        path = render_recent_matches_image("417459099", "Tetra", matches)
+        self.assertIsNotNone(path)
+        self.images.append(path)
+        self.assertTrue(os.path.exists(path))
+        with open(path, "rb") as f:
+            header = f.read(8)
+            self.assertEqual(header, b"\x89PNG\r\n\x1a\n")
+
+    def test_render_recent_matches_empty_returns_none(self):
+        self.assertIsNone(render_recent_matches_image("417459099", "Tetra", []))
+        self.assertIsNone(render_recent_matches_image("417459099", "Tetra", None))
