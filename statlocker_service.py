@@ -111,7 +111,6 @@ class StatLockerService:
         if sys.executable:
             candidates.append(sys.executable)
         for kv in [
-            os.path.expanduser("~/.local/share/webclass-sync/venv/bin/python"),
             os.path.expanduser("~/.astrbot/data/venv/bin/python"),
             os.path.expanduser("~/.local/share/astrbot/venv/bin/python"),
             os.path.expanduser("~/venv/bin/python"),

@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 import aiohttp
-from astrbot.api import AstrBotConfig
+from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.agent.message import TextPart

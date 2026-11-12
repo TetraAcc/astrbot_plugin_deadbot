@@ -30,7 +30,7 @@ def load_handlers():
         node.decorator_list = []
     namespace = dict(asyncio=asyncio, sqlite3=sqlite3, parse_account=accounts.parse_account,
                      identity=accounts.identity, parse_roster=report.parse_roster,
-                     AstrMessageEvent=object)
+                     AstrMessageEvent=object, logger=Mock())
     service = importlib.import_module(PACKAGE + ".statlocker_service")
     namespace.update(StatLockerError=service.StatLockerError, render_statlocker=service.render,
                      parse_match_id=importlib.import_module(PACKAGE + ".input").parse_match_id,
