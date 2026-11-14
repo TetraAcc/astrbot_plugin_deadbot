@@ -333,6 +333,6 @@ class Library:
                     f"{date}｜{match_id}\n{hero_name(p.get('hero_id'))}｜{result}｜K/D/A {kda}"
                 )
         lines.append(
-            f"英雄胜率与场均数据：/英雄统计 {name}\n当前是历史概览，尚未生成打法风格或进步结论。"
+            f"英雄胜率与场均数据：/英雄 {name}\n当前是历史概览，尚未生成打法风格或进步结论。"
         )
         return "\n".join(lines)

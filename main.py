@@ -16,7 +16,7 @@ from .analysis import PlayerAnalysis
 from .accounts import parse_account, identity
 from .latest import LatestHistory, report_slot
 from .commands import HELP, HELP_DETAILED, HELP_TOPICS, text_pages
-from .deadlock import make_report, normalize
+from .deadlock import HEROES, make_report, normalize
 from .details import DetailBackfill
 from .history import History
 from .input import parse_match_id
@@ -72,9 +72,9 @@ class DeadBot(Star):
             )
         except ValueError:
             text = "\n[DeadBot 当前配置]\n当前名单配置无效，不能引用人格或旧对话中的名单。请引导用户使用 /群友名单 检查配置。"
-        text += "\n现有指令：/群友名单、/同步（同义：同步历史、刷新） 群友称呼或全部、/绑定 AccountID或Steam数字链接、/解绑、/最新（同义：最新数据、最新比赛）、/分析（同义：打法分析） [群友称呼] [标准或排位或全部]、/英雄统计 群友称呼、/群友画像 群友称呼、/战报（旧别名：评分详情） 比赛ID、/评分规则。名单是可选功能，绑定不要求在名单内；最新会按需刷新个人历史，/最近 列出最近5场。/战报 无参数等同 /最新；/分析 合并表现与练习建议，/建议 是兼容入口，使用本地记录。最新和分析不指定群友时查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报直接读取StatLocker评分、评级和排名；抓取失败不得编造或改用本地评分，最低分不代表输局责任。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
-        text += "\n/帮助（同义：指令、deadbot帮助、deadbothelp）查看完整指令。自研成就评定暂停，/成就详情（同义：成就）仅提示改用战报；/成就规则 [类别或名称] 查看规则。成就独立于MVP，仅按已核实字段触发，不编造连杀、控制或打法类别评级。"
-        text += "\n/日报 [群友称呼或全部] [今天、昨天或YYYY-MM-DD] 查看本地每日总结，默认全部；/建议（同义：打法建议） [群友称呼] [标准或排位或全部] 默认自己；/补全 [群友称呼或全部] 补抓近期缺失详情。同步历史后自动补详情，每轮最多25场，已有详情复用。个人六维为输出、发育、承伤、辅助、前期、推进，只与自己的同英雄同模式历史比较，不是StatLocker类别评分，不改变MVP。发育和承伤高不等于打得好，不以老玩家分数要求新手；建议只指出复盘方向，不臆测走位、出装或玩家意图。"
+        text += "\n现有指令：/绑定 AccountID或Steam数字链接、/解绑、/战报 [比赛ID]（默认查自己最新一局卡片，旧别名 /最新、/评分详情 兼容）、/最近 [群友]（查最近5场卡片速览）、/分析 [群友] [模式]（近50场打法体检与建议，旧别名 /建议 兼容）、/日报 [昨天/日期]、/英雄 [群友] [英雄名] [天数] [模式]（常用英雄池与胜率，默认查自己，旧别名 /英雄统计、/群友画像 兼容）、/群友名单、/同步、/补全、/评分规则。名单是可选功能，绑定不要求在名单内；最新会按需刷新个人历史。战报和分析不指定群友时默认查发送者绑定的账号，未知绑定应引导 /绑定，不猜测。战报直接读取StatLocker评分、评级和排名；抓取失败不得编造或改用本地评分，最低分不代表输局责任。添加群友目前应使用 WebUI → 插件 → DeadBot → 配置；不要编造 /添加群友 等未实现指令。"
+        text += "\n/帮助 [主题]（同义：指令、deadbot帮助、deadbothelp）查看帮助。自研成就评定暂停，/成就详情（同义：成就）仅提示改用战报。"
+        text += "\n/日报 [群友称呼或全部] [今天、昨天或YYYY-MM-DD] 查看本地每日总结，默认全部；/补全 [群友称呼或全部] 补抓近期缺失详情。同步历史后自动补详情，每轮最多25场，已有详情复用。打法分析与六维指标仅供复盘参考，不以老玩家数据苛求新手，不臆测走位、出装或玩家意图。"
         request.extra_user_content_parts.append(TextPart(text=text).mark_as_temp())
 
     @filter.command("帮助", alias={"指令", "deadbot帮助", "deadbothelp"})
@@ -464,7 +464,7 @@ class DeadBot(Star):
         for page in text_pages(text, "分析"):
             yield event.plain_result(page)
 
-    @filter.command("英雄统计")
+    @filter.command("英雄", alias={"英雄统计", "群友画像", "常用英雄"})
     async def hero_stats(
         self,
         event: AstrMessageEvent,
@@ -473,19 +473,29 @@ class DeadBot(Star):
         days: int = 0,
         mode: str = "1",
     ):
-        """/英雄统计 群友称呼 [英雄名或全部] [天数，0为全部] [游戏模式ID或全部]"""
+        """/英雄 [群友称呼或Account ID] [英雄名或全部] [天数，0为全部] [游戏模式ID或全部]"""
         try:
             roster = parse_roster(self.config.get("roster", []))
-            selected = [a for a, n in roster.items() if name in (a, n)]
-            if len(selected) != 1:
-                yield event.plain_result(
-                    "用法：/英雄统计 群友称呼\n筛选：/英雄统计 群友称呼 英雄名 天数 模式\n英雄填全部表示不限英雄，天数0查全部历史。默认模式1；模式填全部表示不限模式。"
-                )
-                return
+            heroes_map = globals().get("HEROES")
+            if heroes_map is None:
+                try:
+                    from .deadlock import HEROES as heroes_map
+                except Exception:
+                    heroes_map = {}
+            if (
+                name
+                and (name in heroes_map.values() or name in heroes_map.keys())
+                and hero == "全部"
+                and name not in roster.values()
+                and name not in roster.keys()
+            ):
+                hero, name = name, ""
+            account = await self._resolve_account(event, name, roster)
+            player_name = roster.get(account, f"玩家 {account}")
             text = await asyncio.to_thread(
                 self.library.stats,
-                selected[0],
-                roster[selected[0]],
+                account,
+                player_name,
                 "" if hero == "全部" else hero,
                 days,
                 mode,
@@ -496,27 +506,10 @@ class DeadBot(Star):
             text = "本地历史库暂不可用，请检查磁盘与目录权限。"
         yield event.plain_result(text)
 
-    @filter.command("群友画像")
     async def profile(self, event: AstrMessageEvent, name: str = ""):
-        """查询已收录的群友历史：/群友画像 群友称呼。"""
-        try:
-            roster = parse_roster(self.config.get("roster", []))
-            accounts = [a for a, n in roster.items() if name in (a, n)]
-            if len(accounts) != 1:
-                yield event.plain_result(
-                    "请指定唯一群友称呼或 Account ID：/群友画像 群友称呼\n可选："
-                    + "、".join(roster.values())
-                )
-                return
-            account = accounts[0]
-            text = await asyncio.to_thread(
-                self.library.profile, account, roster[account]
-            )
-        except ValueError as exc:
-            text = str(exc)
-        except (sqlite3.Error, OSError):
-            text = "本地历史库暂不可用，请检查磁盘空间与目录权限。"
-        yield event.plain_result(text)
+        """兼容保留的画像查询方法。"""
+        async for res in self.hero_stats(event, name=name):
+            yield res
 
     @filter.command("群友名单", alias={"名单", "群有名单", "查看群友名单"})
     async def roster(self, event: AstrMessageEvent):
